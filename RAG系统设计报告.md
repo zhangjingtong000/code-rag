@@ -50,7 +50,22 @@
 4. **支持流式** — 改善用户体验
 5. **成本可控**
 
-> **实践建议**：用同一套问题集（覆盖定位/实现/解释/列举/排查各 2-3 题）对比候选模型，重点关注完整性和准确性。
+**推荐模型**：
+
+| 模型 | 上下文 | 优势 | 适用场景 |
+|------|--------|------|----------|
+| **DeepSeek Chat** | 64K | 代码理解好、指令跟随强、流式稳定、中文优秀、性价比高 | 首选推荐，实测效果好 |
+| GPT-4o / GPT-4o-mini | 128K | 综合能力强、生态好 | 预算充足时 |
+| Qwen3.5 / Qwen-Coder | 32-128K | 代码专精、开源可本地部署 | 数据敏感需本地运行时 |
+| Claude Sonnet 4 | 200K | 超长上下文、代码分析深度好 | 大项目多文件对比 |
+
+> **实践建议**：用同一套问题集（覆盖定位/实现/解释/列举/排查各 2-3 题）对比候选模型，重点关注完整性和准确性。实测 DeepSeek Chat 在 64K 窗口 + 动态 token 预算下输出稳定，性价比突出。
+
+**API 调用注意事项**：
+
+- 走代理时用 `session.trust_env = False` 绕过，避免代理超时断开长连接
+- 超时设 `timeout=(30, 300)` — 30 秒连接超时，300 秒读取超时（流式需要）
+- `max_tokens` 动态计算而非写死：`min(16384, 总窗口 - 输入token数 - 缓冲)`
 
 ### 3.2 嵌入模型（Embedding）
 
@@ -63,7 +78,33 @@
 | 批量接口 | 知识库构建时批量请求可提速 10-20 倍 |
 | 部署方式 | 本地部署（数据不出本机，无 API 费用）vs 云端 API（省运维但花钱） |
 
-> **陷阱**：Ollama 等本地服务中，模型名称必须包含完整路径（如 `user/model:tag` 而非 `model:tag`），否则返回 404 且错误信息极易误导排查方向。**先用 curl 验证模型名称和 API 端点完全正确**，再写代码。
+**推荐模型**：
+
+| 模型 | 维度 | 上下文 | 部署 | 适用场景 |
+|------|------|--------|------|----------|
+| **Jina Embeddings v2 Base Code** | 768 | 8192 | Ollama 本地 / API | **首选推荐**，代码专用，8192 窗口允许大 chunk |
+| BGE-M3 | 1024 | 8192 | Ollama / 本地 | 多语言 + 代码混合，中文好 |
+| BGE-small-zh-v1.5 | 512 | 512 | sentence-transformers | 轻量中文场景（33MB） |
+| text-embedding-3-small | 1536 | 8191 | OpenAI API | 不想本地部署时 |
+
+**Jina v2 量化版使用方式**（推荐）：
+
+```bash
+# 1. 拉取量化模型（~100MB）
+ollama pull unclemusclez/jina-embeddings-v2-base-code:q5
+
+# 2. 验证 API
+curl http://localhost:11434/api/embed \
+  -d '{"model":"unclemusclez/jina-embeddings-v2-base-code:q5","input":["test code"]}'
+
+# 3. Python 调用
+resp = requests.post("http://localhost:11434/api/embed",
+    json={"model": "unclemusclez/jina-embeddings-v2-base-code:q5", "input": texts},
+    timeout=120)
+embeddings = resp.json()["embeddings"]
+```
+
+> **陷阱**：Ollama 中模型名称必须包含完整路径（`user/model:tag` 而非 `model:tag`），否则返回 `404 {"error":"model not found"}`。**先用 curl 验证模型名称和 API 端点完全正确**，再写代码。Windows 系统代理可能拦截 localhost 请求导致 404，排查时注意区分"模型名称错误"和"代理干扰"两种 404。
 
 ### 3.3 两种检索方式的角色分工
 
@@ -285,16 +326,174 @@ LLM 的流式推送通常是 Burst 模式——一次推一批 token，停几秒
 
 ---
 
-## 八、前端渲染
+## 八、前端设计
 
-### 8.1 代码块
+### 8.1 整体设计风格
 
-- **语法高亮**：按语言自动着色
-- **语言标签**：代码块顶部显示语言名
-- **一键复制**：复制按钮 + "已复制" 反馈
-- **折叠/展开**：长代码块支持收起，默认展开
+推荐采用**浅色清爽风格 + 单一品牌色**，而非纯白色或暗色。理由：
 
-### 8.2 Markdown 渲染
+- 代码块保留深色背景更易读（亮色代码块刺眼）
+- 品牌色统一贯穿（按钮、链接、高亮、气泡），避免杂乱配色
+- CSS 变量管理全局色彩体系，方便整体换肤
+
+**推荐 CSS 变量体系**：
+
+```css
+:root {
+  --bg: #f1f5f9;              /* 页面底色（浅灰蓝） */
+  --bg-card: #ffffff;          /* 卡片/气泡底色 */
+  --primary: #3b82f6;          /* 品牌色 */
+  --primary-light: #eff6ff;    /* 品牌色浅底 */
+  --text-primary: #0f172a;     /* 主文字 */
+  --text-secondary: #475569;   /* 次文字 */
+  --code-bg: #1e293b;          /* 代码块深色底 */
+  --border: #e2e8f0;           /* 边框 */
+  --radius: 8px;               /* 圆角 */
+  --radius-lg: 14px;           /* 大圆角 */
+}
+```
+
+**字体选择**：
+- 标题：衬线体（如 Georgia / Noto Serif SC），增加学术感
+- 正文：系统默认无衬线栈（`-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`）
+- 代码：等宽字体（JetBrains Mono / Cascadia Code / Fira Code）
+- 避免 Inter/Roboto/Arial（过于通用，缺乏辨识度）
+
+### 8.2 三栏布局
+
+推荐经典的 **记录 | 对话 | 快捷提问** 三栏结构：
+
+```
+┌──────────┬────────────────────┬──────────┐
+│ 问答记录  │                    │ 快捷提问  │
+│ (250px)  │   对话区 + 输入框    │ (260px)  │
+│          │   (flex: 1)        │          │
+│ ·问题1   │                    │ 快速入门  │
+│ ·问题2   │   [助手回答...]     │ ·问题A   │
+│ ·问题3   │                    │ ·问题B   │
+│          │   [用户提问...]     │ 功能实现  │
+│          │                    │ ·问题C   │
+│          │   [输入框_____🚀]  │ ·问题D   │
+└──────────┴────────────────────┴──────────┘
+```
+
+- 窄屏（<900px）时自动隐藏右栏，再窄（<768px）时左栏改为顶部横条
+- `max-width` 限制总宽度避免超宽屏内容被拉长
+
+### 8.3 左侧栏：问答记录
+
+**行为**：
+
+- 每次用户提问后自动追加一项，显示问题文本
+- 最新问题自动出现在列表底部
+- 点击历史问题 → 对话区平滑滚动到对应位置 → 目标消息短暂高亮（`box-shadow` 光环 1.8 秒后消失）
+- 当前查看的问题高亮（左侧蓝色竖条 + 浅蓝底色）
+- 首次打开时显示占位文字："还没有提问，输入问题开始"
+- **仅本次会话有效**，刷新页面即清空
+
+**实现要点**：
+
+```javascript
+// 每个消息 DOM 元素赋予唯一 id，sidebar 按钮存储 data-msg-id
+div.id = 'msg-' + (++counter);
+
+// 点击侧栏按钮 → scrollIntoView + 高亮动画
+msgEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+msgEl.style.boxShadow = '0 0 0 3px rgba(59,130,246,0.2)';
+setTimeout(() => msgEl.style.boxShadow = '', 1800);
+
+// 更新 active 样式
+oldActive.classList.remove('active');
+sidebarBtn.classList.add('active');
+```
+
+### 8.4 右侧栏：快捷提问
+
+**设计原则**：
+
+- **始终可见**，不受对话进度影响
+- 按难度或主题**分组**（如：快速入门 / 功能实现 / 架构与安全）
+- 每组带小标题，问题以按钮形式纵向排列
+- 点击后填入输入框并自动发送，无需二次操作
+- 问题措辞从易到难、从通用到深入
+
+**问题设计技巧**：
+
+| 分组 | 示例问题 | 目的 |
+|------|---------|------|
+| 快速入门 | "项目有哪些页面？"、"app.json 里配置了什么？" | 熟悉项目结构 |
+| 功能实现 | "图像识别怎么实现的？"、"OCR 的数据流是怎样的？" | 理解核心逻辑 |
+| 架构与安全 | "图片上传做了哪些安全校验？"、"main 和 release 分支有什么区别？" | 深入架构对比 |
+
+### 8.5 代码块
+
+每个代码块包含完整的交互元素：
+
+```
+┌─────────────────────────────────────┐
+│ Python  │  [收起] [复制]            │ ← 代码块头部
+├─────────────────────────────────────┤
+│ def recognize(image):              │
+│     result = model.predict(image)  │ ← 语法高亮代码
+│     return result                  │
+└─────────────────────────────────────┘
+```
+
+- **语法高亮**：使用 highlight.js，按语言自动着色（深色主题如 github-dark）
+- **语言标签**：头部左侧显示语言名，全大写，等宽字体
+- **一键复制**：`navigator.clipboard.writeText()` + "已复制" 反馈（1.8 秒后恢复）；降级方案用 `document.execCommand('copy')`
+- **折叠/展开**：
+
+```javascript
+// 折叠时限制 max-height + 降低透明度
+codeBody.classList.toggle('folded');    // max-height: 60px
+codeBody.style.opacity = '0.5';        // 视觉提示已折叠
+btn.textContent = isFolded ? '展开' : '收起';
+```
+
+折叠状态默认为展开（用户第一眼需要看到完整代码），折叠后显示代码前几行作为预览。
+
+**代码块渲染 — Markdown 解析器自定义**：
+
+使用 marked.js 的自定义 Renderer 注入代码块头部：
+
+```javascript
+renderer.code = function(code, lang) {
+  var blockId = 'code-' + randomId();
+  var highlighted = hljs.highlight(code, { language: lang || 'text' }).value;
+
+  return '<div class="code-block">' +
+    '<div class="code-header">' +
+      '<span>' + (lang || 'text') + '</span>' +
+      '<button onclick="toggleFold(\'' + blockId + '\')">收起</button>' +
+      '<button onclick="copyCode(\'' + blockId + '\')">复制</button>' +
+    '</div>' +
+    '<div class="code-body" id="' + blockId + '">' +
+      '<pre><code>' + highlighted + '</code></pre>' +
+    '</div>' +
+    '</div>';
+};
+```
+
+**复制按钮的 clipboard API 降级**：
+
+```javascript
+if (navigator.clipboard) {
+  navigator.clipboard.writeText(code).then(...);
+} else {
+  // Fallback: 创建隐藏 textarea → select → execCommand('copy')
+  var ta = document.createElement('textarea');
+  ta.value = code;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+}
+```
+
+### 8.6 Markdown 渲染
 
 **关键教训**：CDN 引用的库必须固定版本号。
 
@@ -308,18 +507,46 @@ LLM 的流式推送通常是 Burst 模式——一次推一批 token，停几秒
 
 marked.js v4 → v15 的 API 完全变化（`setOptions` 移除、`Renderer` 签名变更、`parser.parseInline` 移除）。不固定版本号会导致页面静默崩溃，排查困难。
 
-### 8.3 前端缓存
+另外注意不同版本 Renderer 的方法签名不同：
+- marked v4：`renderer.code = function(code, lang)` — 位置参数
+- marked v5+：`renderer.code = function({ text, lang })` — 对象解构
+
+渲染函数加 try-catch 兜底，解析失败时直接显示原文（转义 HTML）。
+
+### 8.7 来源引用渲染
+
+LLM 输出的来源标注（如 `[来源: main | 文件: xxx | 行号: Y-Z]`）可以用自定义 renderer 识别并包裹为特殊样式：
+
+```javascript
+renderer.paragraph = function(text) {
+  if (/^\[来源:/.test(text.trim())) {
+    return '<div class="source-ref">' + text + '</div>';
+  }
+  return '<p>' + text + '</p>';
+};
+```
+
+渲染效果：等宽字体、小字号、灰色底卡片，区别于正文段落。
+
+### 8.8 前端缓存控制
 
 开发阶段给静态文件加 `Cache-Control: no-cache` 响应头，避免浏览器缓存旧版 JS/CSS，导致修改不生效但误以为代码有问题。
 
-### 8.4 界面布局建议
+```python
+class NoCacheStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+```
 
-- **快捷提问面板**（始终可见）：按难度分类的示例问题，点击直接发送，不需要在输入框打字
-  - 快速入门（项目结构、配置）
-  - 功能实现（核心流程、API）
-  - 架构与安全（跨分支对比、安全机制）
-- **问答记录侧栏**（单次会话）：展示本次会话所有提问，点击跳转到对应位置并高亮
-- **三栏布局**：记录 | 对话 | 快捷提问，窄屏时自动隐藏侧栏
+### 8.9 响应式适配
+
+| 屏幕宽度 | 布局 |
+|---------|------|
+| > 900px | 三栏完整展示 |
+| 768-900px | 隐藏右栏，两栏（记录 | 对话） |
+| < 768px | 单栏，左栏改为顶部横条，chips 缩小 |
 
 ---
 
