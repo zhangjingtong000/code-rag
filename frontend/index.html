@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>源代码智能问答 — RAG</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="app">
+  <!-- Left Sidebar: History -->
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">问答记录</div>
+      <div class="sidebar-subtitle">本次会话</div>
+    </div>
+    <div class="sidebar-list" id="sidebar-list">
+      <div class="sidebar-empty">还没有提问，<br>输入问题开始</div>
+    </div>
+  </aside>
+
+  <!-- Center: Chat -->
+  <div id="main-col">
+    <header>
+      <div class="header-inner">
+        <div class="header-brand">
+          <div class="header-icon">{ }</div>
+          <div>
+            <div class="header-title">源代码问答</div>
+            <div class="header-subtitle">RAG Code Intelligence</div>
+          </div>
+        </div>
+        <div class="status-indicator">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-text">检测中...</span>
+        </div>
+      </div>
+    </header>
+
+    <main id="messages">
+      <div class="welcome-mini" id="welcome-mini">
+        <span class="welcome-mini-icon">&#x276F;_</span>
+        代码分析助手 — 可询问小程序项目、分支对比、RAG系统实现的任何代码问题
+      </div>
+    </main>
+
+    <footer>
+      <div class="input-wrap">
+        <textarea id="input" placeholder="询问关于项目代码的问题..." rows="1"></textarea>
+        <button id="send-btn" title="发送 (Enter)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+      <div class="input-hint">Enter 发送 · Shift+Enter 换行</div>
+    </footer>
+  </div>
+
+  <!-- Right Panel: Quick Questions -->
+  <aside id="right-panel">
+    <div class="panel-header">
+      <div class="panel-title">快捷提问</div>
+      <div class="panel-subtitle">点击直接发送</div>
+    </div>
+    <div class="panel-body">
+      <div class="panel-section">
+        <div class="panel-section-title">快速入门</div>
+        <button class="panel-chip" onclick="askExample(this)">项目有哪些页面？</button>
+        <button class="panel-chip" onclick="askExample(this)">app.json 里配置了什么？</button>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">功能实现</div>
+        <button class="panel-chip" onclick="askExample(this)">图像识别是怎么实现的？</button>
+        <button class="panel-chip" onclick="askExample(this)">OCR 的数据流是怎样的？</button>
+        <button class="panel-chip" onclick="askExample(this)">前端页面之间如何跳转？</button>
+        <button class="panel-chip" onclick="askExample(this)">后端有哪些 API 端点？</button>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">架构与安全</div>
+        <button class="panel-chip" onclick="askExample(this)">图片上传做了哪些安全校验？</button>
+        <button class="panel-chip" onclick="askExample(this)">main 和 release 分支有什么区别？</button>
+        <button class="panel-chip" onclick="askExample(this)">RAG 系统怎么检索代码的？</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+  function askExample(el) {
+    var input = document.getElementById('input');
+    input.value = el.textContent;
+    window.chatApp.sendMessage();
+  }
+</script>
+<script src="js/markdown.js"></script>
+<script src="js/streaming.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
