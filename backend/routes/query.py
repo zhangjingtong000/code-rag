@@ -66,6 +66,7 @@ def stream_query(query_id: str):
             from backend.retrieval.vector_store import VectorStore
             from backend.retrieval.bm25_store import BM25Store
             from backend.retrieval.fusion import hybrid_search
+            from backend.retrieval.reranker import rerank
             from backend.generation.context_builder import ContextBuilder
             from backend.generation.context_builder import estimate_tokens
             from backend.generation.prompt_manager import PromptManager
@@ -93,7 +94,7 @@ def stream_query(query_id: str):
             bm25_results = bm25.search(expanded_query, k=settings.bm25_k)
 
             # 5. Hybrid fusion
-            fusion_results = hybrid_search(vector_results, bm25_results)
+            fusion_results = hybrid_search(vector_results, bm25_results, question=question)
 
             # Metadata
             source_files = []
@@ -109,7 +110,12 @@ def stream_query(query_id: str):
                 "files": source_files,
             })
 
-            # 6. Build context
+            # 6. Cross-encoder rerank (universal quality boost)
+            if len(fusion_results) > 15:
+                fusion_results = rerank(question, fusion_results, top_n=20)
+                _log(f"Reranked to {len(fusion_results)} candidates")
+
+            # 7. Build context
             ctx_builder = ContextBuilder()
             context = ctx_builder.build(fusion_results)
 

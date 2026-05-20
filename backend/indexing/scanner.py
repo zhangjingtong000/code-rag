@@ -36,6 +36,10 @@ class CodeScanner:
             return 'wxss'
         if ext == '.json':
             return 'json'
+        if ext == '.html':
+            return 'html'
+        if ext == '.css':
+            return 'css'
         return 'unknown'
 
     def _should_include(self, filepath: str) -> bool:

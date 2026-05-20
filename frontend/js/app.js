@@ -15,6 +15,7 @@ var ChatApp = class ChatApp {
       messages: document.getElementById('messages'),
       input: document.getElementById('input'),
       sendBtn: document.getElementById('send-btn'),
+      stopBtn: document.getElementById('stop-btn'),
       statusDot: document.getElementById('status-dot'),
       statusText: document.getElementById('status-text'),
       sidebarList: document.getElementById('sidebar-list'),
@@ -132,7 +133,8 @@ var ChatApp = class ChatApp {
 
     try {
       this.isStreaming = true;
-      this.els.sendBtn.disabled = true;
+      this.els.sendBtn.style.display = 'none';
+      this.els.stopBtn.style.display = '';
 
       var resp = await fetch('/api/rag/query', {
         method: 'POST',
@@ -154,7 +156,8 @@ var ChatApp = class ChatApp {
       this.showError('发送失败: ' + err.message);
     } finally {
       this.isStreaming = false;
-      this.els.sendBtn.disabled = false;
+      this.els.sendBtn.style.display = '';
+      this.els.stopBtn.style.display = 'none';
       this.els.input.focus();
     }
   }

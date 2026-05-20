@@ -66,15 +66,39 @@ class Indexer:
             print(f"[Indexer] Incremental: {len(changed_files)}/{len(files)} files changed")
 
         # Chunk
+        semantic_chunks = []  # standalone tag-only chunks for high-precision retrieval
         for fi in (changed_files if mode == 'incremental' else files):
             chunks = self.chunker.chunk_file(fi)
 
-            # Low-info config files skip vector embedding
+            # Generate semantic tag for this file
+            tag_text = _file_semantic_tag(fi)
+
             for ch in chunks:
                 if ch.chunk_type == 'config':
                     ch.content = ''  # mark for BM25-only
+                else:
+                    # Prepend tag to code content (for BM25 + LLM context)
+                    ch.content = tag_text + '\n' + ch.content
+
+            # Create standalone semantic tag chunk (NOT diluted by code)
+            # This gives the tag undiluted embedding signal for retrieval
+            from backend.indexing.chunker import CodeChunk
+            tag_chunk = CodeChunk(
+                source=fi.source,
+                file_path=fi.relative_path,
+                language='summary',
+                content=tag_text,
+                start_line=0,
+                end_line=0,
+                chunk_type='semantic_tag',
+                file_md5=fi.md5,
+            )
+            semantic_chunks.append(tag_chunk)
 
             all_chunks.extend(chunks)
+
+        # Add semantic chunks AFTER regular chunks so they get embedded too
+        all_chunks.extend(semantic_chunks)
 
         if not all_chunks and mode == 'incremental':
             # Clean up orphans (deleted source files)
@@ -193,3 +217,66 @@ class Indexer:
 
 # Need numpy for vstack
 import numpy as np
+
+
+# ── File-level semantic tags ──
+# These provide natural-language context so the embedding model understands
+# WHAT a file is, not just what code it contains.
+
+_FILE_SEMANTIC_TAGS = {
+    # RAG system frontend
+    'frontend/index.html': 'RAG问答系统前端主页面 聊天界面布局 左侧问答记录栏 中间对话区 右侧快捷提问面板 三栏布局',
+    'frontend/css/style.css': 'RAG系统前端样式表 浅蓝白配色设计 CSS变量体系 响应式布局 代码块样式 消息气泡 三栏布局',
+    'frontend/js/app.js': 'RAG系统前端核心聊天逻辑 ChatApp类 消息管理 发送消息 流式响应处理 侧栏问题追踪 点击跳转',
+    'frontend/js/streaming.js': 'RAG系统SSE流式处理器 StreamHandler 打字机缓冲效果 16ms定时器平滑渲染 流中断重试',
+    'frontend/js/markdown.js': 'RAG系统Markdown渲染模块 代码语法高亮 代码折叠收起 一键复制 来源引用标注',
+    # RAG system backend
+    'backend/app.py': 'RAG系统FastAPI应用入口 CORS中间件 静态文件挂载 NoCacheStaticFiles 启动事件',
+    'backend/config.py': 'RAG系统全局配置 Settings数据类 模型参数 分块参数 检索参数 上下文预算 路径配置',
+    'backend/indexing/scanner.py': 'RAG系统文件扫描器 CodeScanner 双目录扫描 文件过滤 语言检测 MD5哈希',
+    'backend/indexing/chunker.py': 'RAG系统代码分块器 CodeChunker 结构感知分块 Python/JS/WXML/WXSS 函数类边界',
+    'backend/indexing/embedding.py': 'RAG系统嵌入服务 EmbeddingService Ollama Jina v2模型 批量嵌入 代理绕过',
+    'backend/indexing/indexer.py': 'RAG系统索引构建器 Indexer 扫描分块嵌入存储流水线 增量索引 孤儿清理',
+    'backend/retrieval/vector_store.py': 'RAG系统向量存储 ChromaDB封装 余弦距离 元数据过滤 add_chunks search',
+    'backend/retrieval/bm25_store.py': 'RAG系统BM25关键词检索引擎 中英文分词 语料库构建 持久化pickle',
+    'backend/retrieval/fusion.py': 'RAG系统混合检索融合 RRF倒数排序融合 去重 同文件限制 来源感知加权',
+    'backend/retrieval/query_expansion.py': 'RAG系统查询扩展 中英文术语映射 150+领域词表 RAG上下文消歧',
+    'backend/generation/llm_service.py': 'RAG系统LLM服务 DeepSeek Chat API 流式生成 SSE 代理绕过',
+    'backend/generation/prompt_manager.py': 'RAG系统Prompt管理 短System硬护栏 重User上下文 消息构建',
+    'backend/generation/context_builder.py': 'RAG系统上下文构建器 全文件检索 令牌预算控制 截断策略 命中范围扩展',
+    'backend/routes/health.py': 'RAG系统健康检查API 索引状态 重建端点',
+    'backend/routes/query.py': 'RAG系统查询API 同步生成器 SSE流式响应 心跳保活 调试日志',
+    'backend/schemas/models.py': 'RAG系统Pydantic数据模型 请求响应Schema',
+    'run.py': 'RAG系统启动入口 uvicorn服务器 端口8001 热重载',
+    'build_index.py': 'RAG系统索引构建脚本 命令行独立运行',
+}
+
+
+def _file_semantic_tag(file_info, chunk=None) -> str:
+    """Generate a natural-language tag describing a file's purpose.
+
+    Returns Chinese text that gets embedded as a standalone semantic chunk
+    AND prepended to code chunks (for BM25 + LLM readability).
+    """
+    rel = file_info.relative_path.replace('\\', '/')
+
+    # Exact match for key architectural files
+    if rel in _FILE_SEMANTIC_TAGS:
+        return f'[文件说明: {_FILE_SEMANTIC_TAGS[rel]}]'
+
+    source = file_info.source
+    lang = file_info.language
+
+    # Generic by language
+    if lang == 'python':
+        return f'[文件说明: Python后端代码 来源:{source} 路径:{rel}]'
+    if lang == 'javascript':
+        return f'[文件说明: JavaScript前端逻辑代码 来源:{source} 路径:{rel}]'
+    if lang in ('html', 'wxml'):
+        return f'[文件说明: 前端页面模板 来源:{source} 路径:{rel}]'
+    if lang in ('css', 'wxss'):
+        return f'[文件说明: 前端样式表 来源:{source} 路径:{rel}]'
+    if lang == 'json':
+        return f'[文件说明: JSON配置文件 来源:{source} 路径:{rel}]'
+
+    return f'[文件说明: 源代码文件 来源:{source} 路径:{rel}]'

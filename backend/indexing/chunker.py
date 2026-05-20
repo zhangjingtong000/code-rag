@@ -36,6 +36,10 @@ class CodeChunker:
             return self._chunk_wxml(file_info)
         if lang == 'wxss':
             return self._chunk_style(file_info, 'wxss')
+        if lang == 'css':
+            return self._chunk_style(file_info, 'css')
+        if lang == 'html':
+            return self._chunk_wxml(file_info)  # same strategy as WXML
         if lang == 'json':
             return self._chunk_config(file_info)
         return []

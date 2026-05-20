@@ -55,6 +55,9 @@
     <footer>
       <div class="input-wrap">
         <textarea id="input" placeholder="询问关于项目代码的问题..." rows="1"></textarea>
+        <button id="stop-btn" title="停止生成" style="display:none" onclick="window.chatApp.abort()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+        </button>
         <button id="send-btn" title="发送 (Enter)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -62,7 +65,7 @@
           </svg>
         </button>
       </div>
-      <div class="input-hint">Enter 发送 · Shift+Enter 换行</div>
+      <div class="input-hint">Enter 发送 · Shift+Enter 换行 · 停止按钮中断生成</div>
     </footer>
   </div>
 
@@ -77,19 +80,37 @@
         <div class="panel-section-title">快速入门</div>
         <button class="panel-chip" onclick="askExample(this)">项目有哪些页面？</button>
         <button class="panel-chip" onclick="askExample(this)">app.json 里配置了什么？</button>
+        <button class="panel-chip" onclick="askExample(this)">项目的技术架构是什么？</button>
+        <button class="panel-chip" onclick="askExample(this)">云函数实现了哪些功能？</button>
       </div>
       <div class="panel-section">
-        <div class="panel-section-title">功能实现</div>
-        <button class="panel-chip" onclick="askExample(this)">图像识别是怎么实现的？</button>
-        <button class="panel-chip" onclick="askExample(this)">OCR 的数据流是怎样的？</button>
+        <div class="panel-section-title">图像识别与OCR</div>
+        <button class="panel-chip" onclick="askExample(this)">图像识别调用的是哪个API？</button>
+        <button class="panel-chip" onclick="askExample(this)">一次完整识别的数据流是怎样的？</button>
+        <button class="panel-chip" onclick="askExample(this)">OCR功能怎么提取图片文字？</button>
+        <button class="panel-chip" onclick="askExample(this)">识别结果如何保存到数据库？</button>
+        <button class="panel-chip" onclick="askExample(this)">图片压缩是怎么做的？</button>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">登录与前端</div>
+        <button class="panel-chip" onclick="askExample(this)">登录流程是怎么实现的？</button>
         <button class="panel-chip" onclick="askExample(this)">前端页面之间如何跳转？</button>
-        <button class="panel-chip" onclick="askExample(this)">后端有哪些 API 端点？</button>
+        <button class="panel-chip" onclick="askExample(this)">wx.setStorageSync 和云数据库怎么协作？</button>
+        <button class="panel-chip" onclick="askExample(this)">profile页面的数据统计怎么算的？</button>
+      </div>
+      <div class="panel-section">
+        <div class="panel-section-title">RAG 系统</div>
+        <button class="panel-chip" onclick="askExample(this)">RAG系统怎么向量检索代码的？</button>
+        <button class="panel-chip" onclick="askExample(this)">混合检索的融合逻辑是什么？</button>
+        <button class="panel-chip" onclick="askExample(this)">代码分块的策略是什么？</button>
+        <button class="panel-chip" onclick="askExample(this)">索引构建的流程是怎样的？</button>
+        <button class="panel-chip" onclick="askExample(this)">DeepSeek 的 Prompt 是怎么设计的？</button>
       </div>
       <div class="panel-section">
         <div class="panel-section-title">架构与安全</div>
         <button class="panel-chip" onclick="askExample(this)">图片上传做了哪些安全校验？</button>
-        <button class="panel-chip" onclick="askExample(this)">main 和 release 分支有什么区别？</button>
-        <button class="panel-chip" onclick="askExample(this)">RAG 系统怎么检索代码的？</button>
+        <button class="panel-chip" onclick="askExample(this)">后端中间件做了什么防护？</button>
+        <button class="panel-chip" onclick="askExample(this)">main 和 release 分支的识别实现有什么不同？</button>
       </div>
     </div>
   </aside>

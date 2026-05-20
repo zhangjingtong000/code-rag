@@ -28,7 +28,7 @@ class Settings:
     ])
 
     # File extensions to include
-    include_extensions: tuple = ('.py', '.js', '.wxml', '.wxss', '.json')
+    include_extensions: tuple = ('.py', '.js', '.wxml', '.wxss', '.json', '.html', '.css')
 
     # Exclude patterns (directory or filename)
     exclude_patterns: list = field(default_factory=lambda: [
@@ -51,8 +51,8 @@ class Settings:
     embed_batch_size: int = 30
 
     # Retrieval
-    vector_k: int = 15
-    bm25_k: int = 15
+    vector_k: int = 25
+    bm25_k: int = 25
     rrf_k: int = 60
     max_chunks_per_file: int = 3
     full_file_top_k: int = 4  # how many top files to include as full content
@@ -74,30 +74,42 @@ class Settings:
     host: str = '0.0.0.0'
     port: int = 8001
 
-    # Paths (relative to project root)
+    # Paths (absolute, resolved against project root)
+    @property
+    def project_root(self) -> str:
+        # Config is at <project>/backend/config.py
+        import os as _os
+        return _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+
     @property
     def data_dir(self) -> str:
-        return 'data'
+        import os as _os
+        return _os.path.join(self.project_root, 'data')
 
     @property
     def chroma_dir(self) -> str:
-        return 'data/chroma_db'
+        import os as _os
+        return _os.path.join(self.data_dir, 'chroma_db')
 
     @property
     def bm25_path(self) -> str:
-        return 'data/bm25_index.pkl'
+        import os as _os
+        return _os.path.join(self.data_dir, 'bm25_index.pkl')
 
     @property
     def metadata_path(self) -> str:
-        return 'data/chunk_metadata.json'
+        import os as _os
+        return _os.path.join(self.data_dir, 'chunk_metadata.json')
 
     @property
     def filehash_path(self) -> str:
-        return 'data/file_hashes.json'
+        import os as _os
+        return _os.path.join(self.data_dir, 'file_hashes.json')
 
     @property
     def summaries_path(self) -> str:
-        return 'data/file_summaries.json'
+        import os as _os
+        return _os.path.join(self.data_dir, 'file_summaries.json')
 
 
 settings = Settings()

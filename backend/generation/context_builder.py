@@ -170,12 +170,14 @@ main 和 release 是两个独立分支，同一功能可能实现不同。检索
         lang_map = {
             'python': 'python', 'javascript': 'javascript',
             'wxml': 'html', 'wxss': 'css', 'json': 'json',
+            'html': 'html', 'css': 'css',
         }
         # Determine language from extension
         ext = os.path.splitext(rel_path)[1].lower()
         lang = lang_map.get({
             '.py': 'python', '.js': 'javascript',
             '.wxml': 'wxml', '.wxss': 'wxss', '.json': 'json',
+            '.html': 'html', '.css': 'css',
         }.get(ext, ext.lstrip('.')), '')
 
         return f"""### [来源: {source} | 文件: {rel_path}]

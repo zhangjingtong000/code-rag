@@ -4,6 +4,10 @@ import json
 import urllib.request
 import numpy as np
 
+# Build a no-proxy opener for localhost (bypasses Windows system proxy)
+_proxy_handler = urllib.request.ProxyHandler({})
+_no_proxy_opener = urllib.request.build_opener(_proxy_handler)
+
 
 class EmbeddingService:
 
@@ -22,7 +26,7 @@ class EmbeddingService:
             headers={"Content-Type": "application/json"},
             method='POST',
         )
-        with urllib.request.urlopen(req, timeout=120) as resp:
+        with _no_proxy_opener.open(req, timeout=120) as resp:
             data = json.loads(resp.read().decode('utf-8'))
         return data.get("embeddings", [])
 
