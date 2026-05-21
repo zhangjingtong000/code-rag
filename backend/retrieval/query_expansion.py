@@ -178,6 +178,19 @@ TERM_MAP = {
     'Uvicorn': ['uvicorn', 'server', 'ASGI', 'reload'],
     'SSE': ['SSE', 'server-sent events', 'event stream', 'StreamingResponse'],
     'CORS': ['CORS', 'cross-origin', 'allow origins'],
+
+    # ── RAG: ASR / Voice Input ──
+    '语音': ['voice', 'speech', 'audio', 'ASR', 'speech-to-text', 'transcribe'],
+    '语音输入': ['voice input', 'speech input', 'microphone', 'MediaRecorder', 'getUserMedia', 'audio recording'],
+    '录音': ['recording', 'audio capture', 'MediaRecorder', 'microphone'],
+    '麦克风': ['microphone', 'mic', 'audio input', 'getUserMedia'],
+    '语音识别': ['ASR', 'speech recognition', 'Qwen3-ASR', 'speech-to-text', 'STT', 'transcription'],
+    '转写': ['transcribe', 'transcription', 'speech-to-text', 'ASR'],
+    '音频': ['audio', 'WAV', 'PCM', 'waveform', 'sound'],
+    'Qwen3': ['Qwen3-ASR', 'Qwen', 'speech recognition model', 'Alibaba'],
+    'ASR': ['automatic speech recognition', 'speech-to-text', 'STT', 'Qwen3-ASR', 'transcriber'],
+    'transcriber': ['transcribe', 'transcription', 'ASR', 'speech recognition', 'Qwen3-ASR'],
+    'MediaRecorder': ['MediaRecorder API', 'getUserMedia', 'audio recording', 'webm', 'browser recording'],
 }
 
 
@@ -210,6 +223,10 @@ def expand_query(question: str) -> str:
             'index.html', 'style.css', 'app.js', 'markdown.js', 'streaming.js',
             'ChatApp', 'StreamHandler', 'NoCacheStaticFiles',
             'frontend layout', 'frontend design', 'frontend/css', 'frontend/js',
+            # Voice / ASR files
+            'audio.py', 'transcriber', 'Qwen3-ASR', 'ASR', 'voice input',
+            'MediaRecorder', '_webmToWav', '_initMic', 'mic-btn',
+            'backend/asr', 'backend/routes/audio',
         ])
 
     if expansion_terms:

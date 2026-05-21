@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.routes.health import router as health_router
 from backend.routes.query import router as query_router
+from backend.routes.audio import router as audio_router
 from backend.config import settings
 
 
@@ -39,6 +40,7 @@ app.add_middleware(
 
 app.include_router(health_router, prefix="/api/rag")
 app.include_router(query_router, prefix="/api/rag")
+app.include_router(audio_router, prefix="/api/rag")
 
 # Mount frontend static files (no-cache for development)
 frontend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")

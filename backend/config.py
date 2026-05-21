@@ -20,12 +20,16 @@ class Settings:
     ollama_base_url: str = 'http://127.0.0.1:11434'
     ollama_embed_model: str = 'unclemusclez/jina-embeddings-v2-base-code:q5'
 
-    # Source directories to index
-    source_dirs: list = field(default_factory=lambda: [
-        {'path': 'data/source-main', 'label': 'main'},
-        {'path': 'data/source-release', 'label': 'release'},
-        {'path': 'data/source-rag', 'label': 'rag'},
-    ])
+    # Source directories to index (paths resolved at access time)
+    @property
+    def source_dirs(self) -> list:
+        import os as _os
+        root = self.project_root
+        return [
+            {'path': _os.path.join(root, 'data', 'source-main'), 'label': 'main'},
+            {'path': _os.path.join(root, 'data', 'source-release'), 'label': 'release'},
+            {'path': _os.path.join(root, 'data', 'source-rag'), 'label': 'rag'},
+        ]
 
     # File extensions to include
     include_extensions: tuple = ('.py', '.js', '.wxml', '.wxss', '.json', '.html', '.css')
@@ -61,6 +65,14 @@ class Settings:
     context_max_tokens: int = 32000  # ~32K input, leaves ~32K for output
     single_file_truncate_tokens: int = 20000  # truncate oversized single file
     context_expand_lines: int = 300  # ±lines around hit chunk for truncation
+
+    # ASR (speech-to-text)
+    asr_backend: str = 'auto'  # auto | qwen3-asr-cli | qwen-asr-py | antirez-c
+    asr_model_name: str = 'Qwen/Qwen3-ASR-0.6B'
+    asr_model_dir: str = 'models/qwen3-asr-0.6b'   # local model from ModelScope
+    asr_binary_path: str = ''  # path to antirez/qwen_asr binary
+    asr_device: str = 'cuda:0'
+    asr_timeout: int = 60  # seconds
 
     # Streaming
     typewriter_frame_ms: int = 16
@@ -110,6 +122,13 @@ class Settings:
     def summaries_path(self) -> str:
         import os as _os
         return _os.path.join(self.data_dir, 'file_summaries.json')
+
+    @property
+    def asr_temp_dir(self) -> str:
+        import os as _os
+        path = _os.path.join(self.data_dir, 'temp_audio')
+        _os.makedirs(path, exist_ok=True)
+        return path
 
 
 settings = Settings()

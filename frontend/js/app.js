@@ -7,15 +7,22 @@ var ChatApp = class ChatApp {
     this.messages = [];
     this.streamHandler = null;
     this.isStreaming = false;
+    this.isRecording = false;
     this.currentAssistantMsg = null;
     this.msgIdCounter = 0;
     this.activeSidebarItem = null;
+    this.mediaRecorder = null;
+    this.audioChunks = [];
+    this.recordStartTime = 0;
+    this.recordTimer = null;
+    this.maxRecordMs = 30000;  // 30s max
 
     this.els = {
       messages: document.getElementById('messages'),
       input: document.getElementById('input'),
       sendBtn: document.getElementById('send-btn'),
       stopBtn: document.getElementById('stop-btn'),
+      micBtn: document.getElementById('mic-btn'),
       statusDot: document.getElementById('status-dot'),
       statusText: document.getElementById('status-text'),
       sidebarList: document.getElementById('sidebar-list'),
@@ -33,6 +40,7 @@ var ChatApp = class ChatApp {
       }
     });
     this.els.input.addEventListener('input', () => this._autoResize());
+    this._initMic();
     this._checkHealth();
   }
 
@@ -135,6 +143,7 @@ var ChatApp = class ChatApp {
       this.isStreaming = true;
       this.els.sendBtn.style.display = 'none';
       this.els.stopBtn.style.display = '';
+      this.els.micBtn.disabled = true;
 
       var resp = await fetch('/api/rag/query', {
         method: 'POST',
@@ -158,6 +167,7 @@ var ChatApp = class ChatApp {
       this.isStreaming = false;
       this.els.sendBtn.style.display = '';
       this.els.stopBtn.style.display = 'none';
+      this.els.micBtn.disabled = false;
       this.els.input.focus();
     }
   }
@@ -272,6 +282,266 @@ var ChatApp = class ChatApp {
     if (this.streamHandler) this.streamHandler.abort();
     this.isStreaming = false;
     this.els.sendBtn.disabled = false;
+  }
+
+  // ── Voice input ──────────────────────────────────
+
+  _initMic() {
+    var mic = this.els.micBtn;
+    if (!mic) return;
+
+    // Feature detection: hide if MediaRecorder not supported
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+      mic.style.display = 'none';
+      return;
+    }
+
+    // mousedown / touchstart → start recording
+    mic.addEventListener('mousedown', (e) => { e.preventDefault(); this._startRecording(); });
+    mic.addEventListener('touchstart', (e) => { e.preventDefault(); this._startRecording(); });
+
+    // mouseup / touchend → stop recording (on document to catch release outside button)
+    document.addEventListener('mouseup', (e) => { if (this.isRecording) this._stopRecording(); });
+    document.addEventListener('touchend', (e) => { if (this.isRecording) this._stopRecording(); });
+
+    // Prevent context menu on long-press
+    mic.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+  }
+
+  _setMicActive(active) {
+    var mic = this.els.micBtn;
+    if (!mic) return;
+    if (active) {
+      mic.classList.add('recording');
+    } else {
+      mic.classList.remove('recording');
+    }
+  }
+
+  _setTranscribing(active) {
+    var mic = this.els.micBtn;
+    if (!mic) return;
+    if (active) {
+      mic.classList.add('transcribing');
+      this.els.input.placeholder = '正在识别语音...';
+      // Show brief dots animation in input area
+      this.els.input.style.animation = 'input-pulse 1.2s ease-in-out infinite';
+    } else {
+      mic.classList.remove('transcribing');
+      this.els.input.placeholder = '询问关于项目代码的问题...';
+      this.els.input.style.animation = '';
+    }
+  }
+
+  async _startRecording() {
+    if (this.isStreaming || this.isRecording) return;
+
+    try {
+      var stream = await navigator.mediaDevices.getUserMedia({
+        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+      });
+      this.isRecording = true;
+      this.audioChunks = [];
+      this._setMicActive(true);
+
+      // Show recording indicator in input
+      this.els.input.placeholder = '正在聆听...';
+      this.els.input.style.color = '#ef4444';
+
+      // Timer display on mic button
+      this.recordStartTime = Date.now();
+      this.recordTimer = setInterval(() => {
+        var elapsed = Math.floor((Date.now() - this.recordStartTime) / 1000);
+        if (elapsed >= 30) this._stopRecording();
+      }, 500);
+
+      var mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus' : 'audio/webm';
+
+      this.mediaRecorder = new MediaRecorder(stream, { mimeType: mimeType });
+      this.mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) this.audioChunks.push(e.data);
+      };
+      this.mediaRecorder.onstop = () => this._onRecordingStop();
+      this.mediaRecorder.start();
+    } catch (err) {
+      console.error('Mic access denied:', err);
+      this._showToast('无法访问麦克风，请检查浏览器权限');
+      this.isRecording = false;
+      this._setMicActive(false);
+    }
+  }
+
+  _stopRecording() {
+    if (!this.isRecording || !this.mediaRecorder) return;
+
+    this.isRecording = false;
+    this._setMicActive(false);
+    this.els.input.placeholder = '询问关于项目代码的问题...';
+    this.els.input.style.color = '';
+
+    if (this.recordTimer) { clearInterval(this.recordTimer); this.recordTimer = null; }
+
+    try {
+      this.mediaRecorder.stop();
+      if (this.mediaRecorder.stream) {
+        this.mediaRecorder.stream.getTracks().forEach(function(t) { t.stop(); });
+      }
+    } catch(e) { /* recorder already stopped */ }
+  }
+
+  async _onRecordingStop() {
+    var duration = (Date.now() - this.recordStartTime) / 1000;
+
+    // Ignore if too short (accidental tap)
+    if (duration < 0.3 || this.audioChunks.length === 0) {
+      this.audioChunks = [];
+      return;
+    }
+
+    var webmBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
+    this.audioChunks = [];
+
+    // Convert webm → 16kHz mono WAV (no ffmpeg needed)
+    this._setTranscribing(true);
+    var wavBlob;
+    try {
+      wavBlob = await this._webmToWav(webmBlob);
+      if (!wavBlob || wavBlob.size < 500) {
+        this._setTranscribing(false);
+        this._showToast('音频处理失败');
+        return;
+      }
+    } catch (e) {
+      console.error('WebM→WAV conversion error:', e);
+      this._setTranscribing(false);
+      this._showToast('音频处理失败');
+      return;
+    }
+
+    // Upload to backend
+    try {
+      this.els.micBtn.disabled = true;
+
+      var formData = new FormData();
+      formData.append('file', wavBlob, 'recording.wav');
+
+      var resp = await fetch('/api/rag/audio/transcribe', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!resp.ok) {
+        this._setTranscribing(false);
+        var errData = await resp.json().catch(function() { return {}; });
+        if (resp.status === 422) {
+          this._showToast('未识别到语音');
+        } else {
+          this._showToast('语音识别失败: ' + (errData.detail || resp.statusText));
+        }
+        return;
+      }
+
+      var data = await resp.json();
+      var text = (data.text || '').trim();
+      this._setTranscribing(false);
+
+      if (!text) {
+        this._showToast('未识别到语音');
+        return;
+      }
+
+      // Fill input — user can review/edit before sending
+      this.els.input.value = text;
+      this._autoResize();
+      this.els.input.focus();
+
+    } catch (err) {
+      this._setTranscribing(false);
+      console.error('Transcribe error:', err);
+      this._showToast('语音识别请求失败');
+    } finally {
+      this.els.micBtn.disabled = false;
+    }
+  }
+
+  async _webmToWav(blob) {
+    // Decode webm via AudioContext
+    var arrayBuffer = await blob.arrayBuffer();
+    var audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    var audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    audioCtx.close();
+
+    // Resample to 16kHz mono if needed
+    var targetRate = 16000;
+    var srcData = audioBuffer.getChannelData(0);  // mono from channel 0
+    var srcRate = audioBuffer.sampleRate;
+
+    // Simple resampling (linear interpolation)
+    var samples;
+    if (srcRate !== targetRate) {
+      var ratio = srcRate / targetRate;
+      var newLen = Math.round(srcData.length / ratio);
+      samples = new Float32Array(newLen);
+      for (var i = 0; i < newLen; i++) {
+        var srcIdx = i * ratio;
+        var idx0 = Math.floor(srcIdx);
+        var idx1 = Math.min(idx0 + 1, srcData.length - 1);
+        var frac = srcIdx - idx0;
+        samples[i] = srcData[idx0] * (1 - frac) + srcData[idx1] * frac;
+      }
+    } else {
+      samples = srcData;
+    }
+
+    // Convert Float32 → 16-bit PCM
+    var pcm = new Int16Array(samples.length);
+    for (var i = 0; i < samples.length; i++) {
+      var s = Math.max(-1, Math.min(1, samples[i]));
+      pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+
+    // Build WAV header
+    var header = new ArrayBuffer(44);
+    var view = new DataView(header);
+    var writeStr = function(off, str) {
+      for (var i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i));
+    };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + pcm.length * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);           // chunk size
+    view.setUint16(20, 1, true);            // PCM
+    view.setUint16(22, 1, true);            // mono
+    view.setUint32(24, targetRate, true);
+    view.setUint32(28, targetRate * 2, true); // byte rate
+    view.setUint16(32, 2, true);            // block align
+    view.setUint16(34, 16, true);           // bits per sample
+    writeStr(36, 'data');
+    view.setUint32(40, pcm.length * 2, true);
+
+    // Combine header + PCM data
+    var wavBytes = new Uint8Array(44 + pcm.byteLength);
+    wavBytes.set(new Uint8Array(header), 0);
+    wavBytes.set(new Uint8Array(pcm.buffer), 44);
+
+    return new Blob([wavBytes], { type: 'audio/wav' });
+  }
+
+  _showToast(msg) {
+    // Simple toast notification
+    var toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    // Trigger reflow for animation
+    toast.offsetHeight;
+    toast.classList.add('show');
+    setTimeout(function() {
+      toast.classList.remove('show');
+      setTimeout(function() { toast.remove(); }, 300);
+    }, 2500);
   }
 };
 
