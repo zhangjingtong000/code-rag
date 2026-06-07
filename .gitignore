@@ -1,6 +1,8 @@
 __pycache__/
 *.pyc
 *.pkl
+data/
+models/
 data/source-*/
 data/chroma_db/
 data/file_hashes.json
