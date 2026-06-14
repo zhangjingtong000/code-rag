@@ -21,8 +21,8 @@ class VectorStore:
         raw = f"{chunk.source}:{chunk.file_path}:{chunk.start_line}:{chunk.end_line}"
         return hashlib.md5(raw.encode()).hexdigest()[:16]
 
-    def add_chunks(self, chunks: list[CodeChunk], embeddings):
-        """Batch insert chunks with embeddings."""
+    def add_chunks(self, chunks: list[CodeChunk], embeddings, batch_size: int = 5000):
+        """Batch insert chunks with embeddings (ChromaDB has max batch size limit)."""
         ids = [self._chunk_id(ch) for ch in chunks]
         documents = [ch.content for ch in chunks]
         metadatas = [
@@ -36,18 +36,25 @@ class VectorStore:
             }
             for ch in chunks
         ]
+        emb_list = embeddings.tolist() if hasattr(embeddings, 'tolist') else embeddings
 
-        # Upsert: remove existing then add
-        existing = self.collection.get(ids=ids)
-        if existing and existing.get('ids'):
-            self.collection.delete(ids=[id for id in ids if id in existing['ids']])
+        total = len(chunks)
+        for start in range(0, total, batch_size):
+            end = min(start + batch_size, total)
+            batch_ids = ids[start:end]
 
-        self.collection.add(
-            ids=ids,
-            documents=documents,
-            embeddings=embeddings.tolist() if hasattr(embeddings, 'tolist') else embeddings,
-            metadatas=metadatas,
-        )
+            # Upsert: remove existing then add
+            existing = self.collection.get(ids=batch_ids)
+            if existing and existing.get('ids'):
+                self.collection.delete(ids=[id for id in batch_ids if id in existing['ids']])
+
+            self.collection.add(
+                ids=batch_ids,
+                documents=documents[start:end],
+                embeddings=emb_list[start:end],
+                metadatas=metadatas[start:end],
+            )
+            print(f"  [VS] Batch {start//batch_size + 1}: {start}-{end}/{total}")
 
     def search(self, query_embedding, k: int = 15) -> list[dict]:
         """Search by vector similarity. Returns list of result dicts."""
