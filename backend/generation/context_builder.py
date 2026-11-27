@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from backend.config import settings
+from backend.semantic_tags import load_config as _load_semantic_config
 
 
 # Approximate token counter (char-based heuristic: ~4 chars per token for Chinese, ~3 for English)
@@ -67,17 +68,9 @@ class ContextBuilder:
         sections = []
         current_tokens = 0
 
-        # Background header
-        header = f"""## 项目背景
-示例小程序项目是一个 AI 图像识别工具，包含图像标签识别、OCR 文字提取、图片对比等功能。
-项目源码分为三部分：
-- **main 分支**：完整 AI 功能，使用千问 VL Max 视觉模型 + DeepSeek 文本模型进行场景识别和标签解释
-- **release 分支**：合规精简版，使用腾讯云 CV API（DetectLabelPro + GeneralBasicOCR）
-- **rag 来源**：本 RAG 问答系统自身的源码（向量检索 + 代码分块 + LLM 生成管线）
-
-main 和 release 是两个独立分支，同一功能可能实现不同。检索到的代码标注了来源。
----
-"""
+        # Background header — text lives in backend/semantic_tags.json so a
+        # different corpus only needs a config edit, not a code change.
+        header = _load_semantic_config()['project_background'].rstrip() + '\n'
         current_tokens = estimate_tokens(header)
 
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

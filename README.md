@@ -29,10 +29,11 @@ POST /api/rag/query → query_id → GET /api/rag/query/stream/{id}（SSE）
    DeepSeek 流式生成 → SSE → 前端打字机渲染（Markdown + 高亮 + 折叠/复制）
 ```
 
-索引侧：`scanner` 扫 `data/source-*` → `chunker` 按结构切块 → 每块前置一段文件语义标签（这个文件是干什么的）→ 向量入库 + BM25 落盘。增量构建只对变更文件重新嵌入，关键词语料每次全量重建。
+索引侧：`scanner` 扫 `data/source-*` → `chunker` 按结构切块 → 每块前置一段文件语义标签（这个文件是干什么的）→ 向量入库 + BM25 落盘。增量构建只对变更文件重新嵌入，关键词语料每次全量重建。语义标签表与项目背景文案是外置配置（`backend/semantic_tags.json`），换项目改那个文件即可，不用动 Python 源码。
 
 ```
 backend/        FastAPI：indexing / retrieval / generation / routes / asr
+backend/semantic_tags.json  文件语义标签表 + 项目背景文案（换项目改这里）
 frontend/       原生 JS 单页（三栏：问答记录 | 对话 | 快捷提问）
 docs/DESIGN.md  设计报告：选型、踩坑、调参速查
 tests/          离线回归测试 + 端到端 smoke test（pytest -q）
@@ -71,6 +72,8 @@ python run.py
 
 `RAG_SOURCE_DIRS` 不设时行为不变（默认仍是 `data/source-{main,release,rag}`）。标签只写了路径没写标签时，取目录名当标签。
 
+换项目时不用改 Python：`backend/semantic_tags.json` 里 `file_semantic_tags` 的键是相对路径（可加 source 前缀，如 `release::app/config.py`）、值是这个文件做什么，`project_background` 是拼进 LLM 上下文的项目背景。也可以用 `RAG_SEMANTIC_TAGS` 指向另一份配置；文件缺失或格式不对时回退到内置默认值，索引照常可建。
+
 不装模型、不配 key 也能验证检索链路：`pytest -q`（`python -m unittest discover -s tests -v` 等价）。其中 `tests/test_e2e_smoke.py` 是端到端 smoke test：拿本仓库自己的源码当语料，跑「建索引 → 向量 + BM25 检索 → RRF 融合 → 组装上下文」，嵌入用确定性假向量，不连 Ollama、不调 LLM。
 
 ## 已知问题
@@ -85,7 +88,8 @@ python run.py
 本轮补上的两处（原先列在「仍然存在」里）：
 
 - **已补端到端测试**：`tests/test_e2e_smoke.py` 覆盖「建索引 → 检索 → 返回结果」全链路并断言至少召回一条。真实的 Ollama 嵌入与 DeepSeek 生成仍不在自动化范围内（要模型 + Key），smoke test 用假嵌入跑通链路，替代了原先那些未入库的一次性集成脚本。
-- **已补语料路径可覆盖**：`RAG_SOURCE_DIRS`（环境变量）与 `build_index.py --source-dirs`（命令行）可指定语料目录，默认值不变；`context_builder` 读整文件时也跟随同一份配置。仍保留的部分：`indexer._FILE_SEMANTIC_TAGS` 与上下文里的项目背景文案是给示例项目（示例小程序项目）写的，换仓库只影响检索质量，不影响跑通。
+- **已补语料路径可覆盖**：`RAG_SOURCE_DIRS`（环境变量）与 `build_index.py --source-dirs`（命令行）可指定语料目录，默认值不变；`context_builder` 读整文件时也跟随同一份配置。
+- **已把语义标签与项目背景外置成配置**：文件语义标签表（原 `indexer._FILE_SEMANTIC_TAGS`，69 条）与上下文里的项目背景文案都搬进了 `backend/semantic_tags.json`，加载器是 `backend/semantic_tags.py`；换项目只改 JSON（或用 `RAG_SEMANTIC_TAGS` 指向另一份），不用改 Python 源码。文件缺失/损坏时回退到内置默认值，索引与上下文仍能构建。回归测试见 `tests/test_semantic_config.py`。
 
 仍然存在（如实列出）：
 
