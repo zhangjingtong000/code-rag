@@ -43,7 +43,7 @@ TERM_MAP = {
     '分支': ['branch', 'main', 'release'],
     '主分支': ['main branch', 'main'],
     '发布分支': ['release branch', 'release'],
-    '模型': ['model', 'LLM', 'deepseek', 'doubao'],
+    '模型': ['model', 'LLM', 'deepseek', 'qwen'],
 
     # ── RAG: Indexing Pipeline ──
     '扫描': ['scanner', 'scan', 'CodeScanner', 'file scan'],
@@ -169,7 +169,8 @@ TERM_MAP = {
     'RRF': ['RRF', 'reciprocal rank fusion', 'rank fusion'],
 
     # ── Models & APIs ──
-    '火山': ['volcano', 'volcengine', 'doubao'],
+    '千问': ['qwen', 'dashscope', 'tongyi'],
+    '火山': ['volcano', 'volcengine', 'doubao'],  # 已废弃，保留兼容
     '腾讯云': ['tencent cloud', 'cloudbase', 'tencent'],
     '知识库': ['knowledge base', 'index', 'vector store', 'ChromaDB'],
     'ChromaDB': ['ChromaDB', 'chromadb', 'vector database', 'persistent client'],

@@ -1,4 +1,4 @@
-"""Standalone index builder script."""
+"""Standalone index builder script. Usage: python build_index.py [full|incremental]"""
 import sys
 import os
 
@@ -7,7 +7,8 @@ sys.path.insert(0, '.')
 
 from backend.indexing.indexer import Indexer
 
-print("Starting index build...")
+mode = sys.argv[1] if len(sys.argv) > 1 else 'incremental'
+print(f"Starting index build (mode={mode})...")
 idx = Indexer()
-idx.build_index(mode='full')
+idx.build_index(mode=mode)
 print("=== INDEX BUILD COMPLETE ===")

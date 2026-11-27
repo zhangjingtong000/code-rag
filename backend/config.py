@@ -35,10 +35,12 @@ class Settings:
     include_extensions: tuple = ('.py', '.js', '.wxml', '.wxss', '.json', '.html', '.css')
 
     # Exclude patterns (directory or filename)
+    # site-packages / venv: vendored third-party code is noise for code QA —
+    # in one snapshot it accounted for ~86% of all indexed files.
     exclude_patterns: list = field(default_factory=lambda: [
-        '__pycache__', '.git', 'node_modules', 'images',
-        'package-lock.json', 'project.private.config.json', 'sitemap.json',
-        '.gitignore', 'figma',
+        '__pycache__', '.git', 'node_modules', 'site-packages', 'venv', '.venv',
+        'images', 'package-lock.json', 'project.private.config.json', 'sitemap.json',
+        '.gitignore', 'figma', 'test_',
     ])
 
     # Exclude file extensions (binary / media)

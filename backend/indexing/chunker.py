@@ -17,6 +17,25 @@ class CodeChunk:
     file_md5: str = ''
 
 
+def chunk_key(chunk: CodeChunk) -> str:
+    """Canonical identity of a chunk, shared by both index backends.
+
+    The vector store and the BM25 store must derive ids the same way. If they
+    don't, the same chunk enters RRF fusion as two unrelated documents and is
+    returned (and rendered) twice.
+    """
+    return f"{chunk.source}:{chunk.file_path}:{chunk.start_line}:{chunk.end_line}"
+
+
+# Top-level JS declarations that start a new chunk. Class expressions such as
+# `var ChatApp = class ChatApp {` are common in this frontend; missing them made
+# the whole file invisible to the boundary scan (only its tail got indexed).
+_JS_BOUNDARY = re.compile(
+    r'^(?:function |async function |class '
+    r'|(?:var|let|const) \w+\s*=\s*(?:class|function|async |\())'
+)
+
+
 class CodeChunker:
 
     def __init__(self, config):
@@ -103,6 +122,19 @@ class CodeChunker:
                 chunk_type='module_level', file_md5=fi.md5,
             ))
             return chunks
+
+        # Emit whatever sits between the import header and the first def/class
+        # (module constants, registries, side-effecting top-level code). Without
+        # this the leading block never reaches the index.
+        first = boundaries[0][0]
+        if first > header_end:
+            gap = '\n'.join(lines[header_end:first])
+            if gap.strip():
+                chunks.append(CodeChunk(
+                    source=fi.source, file_path=fi.relative_path, language=fi.language,
+                    content=gap, start_line=header_end + 1, end_line=first,
+                    chunk_type='module_level', file_md5=fi.md5,
+                ))
 
         # Build chunks between boundaries
         for idx, (start, _decl) in enumerate(boundaries):
@@ -202,6 +234,7 @@ class CodeChunker:
 
         # Find boundary lines: function, class, Page({, App({, Component({
         boundaries = []
+        emitted_pages = set()   # page blocks already turned into chunks
         in_page_block = False
         page_start = 0
         brace_depth = 0
@@ -233,13 +266,15 @@ class CodeChunker:
                             content=page_text, start_line=page_start + 1, end_line=i + 1,
                             chunk_type='page', file_md5=fi.md5,
                         ))
+                    # The boundary loop below must not emit this page a second time
+                    emitted_pages.add(page_start)
                     continue
 
             if in_page_block:
                 continue
 
             # Top-level function or class
-            if re.match(r'^(function |async function |class |const \w+\s*=\s*(async\s*)?\(|module\.exports)', stripped):
+            if _JS_BOUNDARY.match(stripped):
                 if stripped.startswith('module.exports'):
                     continue
                 boundaries.append(i)
@@ -252,9 +287,22 @@ class CodeChunker:
             ))
             return chunks
 
+        # Emit the leading block before the first boundary (file header, module
+        # state, immediately-invoked setup). Otherwise it never reaches the index.
+        if boundaries[0] > 0:
+            gap = '\n'.join(lines[:boundaries[0]])
+            if gap.strip():
+                chunks.append(CodeChunk(
+                    source=fi.source, file_path=fi.relative_path, language=fi.language,
+                    content=gap, start_line=1, end_line=boundaries[0],
+                    chunk_type='module_level', file_md5=fi.md5,
+                ))
+
         # Build chunks between boundaries
         for idx in range(len(boundaries)):
             start = boundaries[idx]
+            if start in emitted_pages:
+                continue
             end = boundaries[idx + 1] if idx + 1 < len(boundaries) else len(lines)
             chunk_text = '\n'.join(lines[start:end])
 

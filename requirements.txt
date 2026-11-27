@@ -1,0 +1,12 @@
+# 运行依赖（Python 3.10+，实测环境 3.13）
+fastapi>=0.104.1
+uvicorn>=0.24.0
+chromadb>=0.4.0
+rank-bm25>=0.2.2
+requests>=2.28.0
+numpy>=1.24.0
+
+# 可选：语音输入（/api/rag/audio/transcribe）
+# transcriber 通过子进程调用外部 ASR 工具，不在此文件中：
+#   pip install qwen-asr            # qwen-asr-py 后端
+#   或安装 qwen3-asr-cli / antirez-qwen_asr 二进制

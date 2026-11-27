@@ -3,8 +3,7 @@
 import os
 import sys
 import json
-import pickle
-import hashlib
+import numpy as np
 from datetime import datetime
 
 # Ensure backend is importable
@@ -12,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from backend.config import settings
 from backend.indexing.scanner import CodeScanner
-from backend.indexing.chunker import CodeChunker
+from backend.indexing.chunker import CodeChunker, CodeChunk, chunk_key
 from backend.indexing.embedding import EmbeddingService
 from backend.retrieval.vector_store import VectorStore
 from backend.retrieval.bm25_store import BM25Store
@@ -28,7 +27,13 @@ class Indexer:
         self.bm25 = BM25Store()
 
     def build_index(self, mode: str = 'full'):
-        """Build or rebuild the entire index."""
+        """Build or rebuild the whole index.
+
+        Chunking is cheap, embedding is not. Every run therefore re-chunks the
+        entire corpus (the BM25 corpus must cover every file, otherwise keyword
+        search silently shrinks to whatever changed), while only new/changed
+        files are embedded and written to the vector store.
+        """
         data_dir = settings.data_dir
 
         # Load old hashes for incremental detection
@@ -43,46 +48,36 @@ class Indexer:
         files = self.scanner.scan()
 
         # Hash tracking
-        new_hashes = {}
-        changed_files = []
+        new_hashes = {f"{fi.source}:{fi.relative_path}": fi.md5 for fi in files}
+
+        if mode == 'full':
+            print(f"[Indexer] Full rebuild: processing all {len(files)} files")
+            self.vs.reset()
+            changed_keys = set(new_hashes)
+        else:
+            changed_keys = {k for k, md5 in new_hashes.items() if old_hashes.get(k) != md5}
+            print(f"[Indexer] Incremental: {len(changed_keys)}/{len(files)} files changed")
+
+        # Chunk every file: all_chunks feeds BM25, chunks_to_embed feeds vectors
         all_chunks = []
-        current = 0
+        chunks_to_embed = []
 
         for fi in files:
             key = f"{fi.source}:{fi.relative_path}"
-            new_hashes[key] = fi.md5
-
-            if mode == 'incremental' and key in old_hashes and old_hashes[key] == fi.md5:
-                continue  # unchanged
-
-            changed_files.append(fi)
-
-        # Process changed files
-        if mode == 'full':
-            print(f"[Indexer] Full rebuild: processing all {len(files)} files")
-            # Clear existing data
-            self.vs.reset()
-        else:
-            print(f"[Indexer] Incremental: {len(changed_files)}/{len(files)} files changed")
-
-        # Chunk
-        semantic_chunks = []  # standalone tag-only chunks for high-precision retrieval
-        for fi in (changed_files if mode == 'incremental' else files):
-            chunks = self.chunker.chunk_file(fi)
+            chunks = [ch for ch in self.chunker.chunk_file(fi) if ch.content.strip()]
 
             # Generate semantic tag for this file
             tag_text = _file_semantic_tag(fi)
 
             for ch in chunks:
-                if ch.chunk_type == 'config':
-                    ch.content = ''  # mark for BM25-only
-                else:
-                    # Prepend tag to code content (for BM25 + LLM context)
+                if ch.chunk_type != 'config':
+                    # Prepend tag to code content (for BM25 + LLM context).
+                    # Config chunks keep their raw text: keyword-only, never embedded.
                     ch.content = tag_text + '\n' + ch.content
+            all_chunks.extend(chunks)
 
             # Create standalone semantic tag chunk (NOT diluted by code)
             # This gives the tag undiluted embedding signal for retrieval
-            from backend.indexing.chunker import CodeChunk
             tag_chunk = CodeChunk(
                 source=fi.source,
                 file_path=fi.relative_path,
@@ -93,93 +88,75 @@ class Indexer:
                 chunk_type='semantic_tag',
                 file_md5=fi.md5,
             )
-            semantic_chunks.append(tag_chunk)
+            all_chunks.append(tag_chunk)
 
-            all_chunks.extend(chunks)
+            if key in changed_keys:
+                chunks_to_embed.extend(chunks)
+                chunks_to_embed.append(tag_chunk)
 
-        # Add semantic chunks AFTER regular chunks so they get embedded too
-        all_chunks.extend(semantic_chunks)
+        if not files:
+            print("[Indexer] No source files found")
 
-        if not all_chunks and mode == 'incremental':
-            # Clean up orphans (deleted source files)
-            all_source_keys = set(new_hashes.keys())
-            old_source_keys = set(old_hashes.keys())
-            orphan_keys = old_source_keys - all_source_keys
-            if orphan_keys:
-                print(f"[Indexer] Cleaning {len(orphan_keys)} orphan chunks")
-                for key in orphan_keys:
-                    self.vs.delete_by_source_key(key)
+        # Drop vector entries of changed or deleted files before re-adding them,
+        # so line ranges that no longer exist stop being retrievable.
+        if mode == 'incremental':
+            stale_keys = changed_keys | (set(old_hashes) - set(new_hashes))
+            if stale_keys:
+                print(f"[Indexer] Dropping stale chunks of {len(stale_keys)} files")
+            for key in stale_keys:
+                self.vs.delete_by_source_key(key)
 
-            # Still rebuild BM25 with ALL files (current state)
-            all_chunks_for_bm25 = []
-            for fi in files:
-                all_chunks_for_bm25.extend(self.chunker.chunk_file(fi))
-            self._rebuild_bm25(all_chunks_for_bm25)
-            self._save_metadata(files, all_chunks_for_bm25)
-            self._save_hashes(new_hashes)
-            print("[Indexer] Incremental rebuild complete (no new chunks)")
-            return
+        # Embed only new/changed chunks (config chunks are keyword-only)
+        embed_items = [ch for ch in chunks_to_embed if ch.chunk_type != 'config']
+        if embed_items:
+            print(f"[Indexer] {len(embed_items)} chunks to embed")
 
-        if not all_chunks:
-            print("[Indexer] No chunks to index")
-            return
-
-        print(f"[Indexer] {len(all_chunks)} chunks to embed")
-
-        # Embed chunks that need vectors (not config-only)
-        embed_chunks = [(i, ch) for i, ch in enumerate(all_chunks) if ch.content]
-        embed_texts = [ch.content for _, ch in embed_chunks]
-        embed_indices = [i for i, _ in embed_chunks]
-
-        if embed_texts:
             lock_path = os.path.join(data_dir, ".building")
-            self._write_progress(lock_path, f"0/{len(embed_texts)}")
+            self._write_progress(lock_path, f"0/{len(embed_items)}")
 
-            embeddings = None
-            total_texts = len(embed_texts)
-
-            # Batch embed with progress
+            pairs = []
+            total = len(embed_items)
             batch_size = settings.embed_batch_size
-            all_embs = []
-            for i in range(0, total_texts, batch_size):
-                batch = embed_texts[i:i + batch_size]
+
+            for i in range(0, total, batch_size):
+                batch = embed_items[i:i + batch_size]
                 try:
-                    batch_embs = self.embedder.embed(batch)
-                    all_embs.append(batch_embs)
+                    batch_embs = self.embedder.embed([ch.content for ch in batch])
+                    if len(batch_embs) != len(batch):
+                        raise ValueError(
+                            f"embedding count mismatch: {len(batch_embs)} != {len(batch)}"
+                        )
+                    pairs.extend(zip(batch, batch_embs))
                 except Exception as e:
                     print(f"[Indexer] Embed batch failed at {i}: {e}")
-                    # Fallback one-by-one
-                    for text in batch:
+                    # Fallback one-by-one; a still-failing chunk gets a zero vector
+                    for ch in batch:
                         try:
-                            all_embs.append(self.embedder.embed([text]))
+                            emb = self.embedder.embed([ch.content])[0]
                         except Exception:
-                            all_embs.append(self.embedder.embed(["error fallback"]))
+                            emb = np.zeros(768, dtype=np.float32)
+                        pairs.append((ch, emb))
 
-                progress = f"{min(i + batch_size, total_texts)}/{total_texts} chunks"
-                self._write_progress(lock_path, progress)
+                self._write_progress(lock_path, f"{min(i + batch_size, total)}/{total} chunks")
 
-            embeddings = np.vstack(all_embs)
-
-            # Deduplicate chunks with same ID (e.g. semantic_tag collides with module_level at line 0)
+            # Deduplicate chunks sharing an id (e.g. semantic_tag vs. a
+            # module_level chunk at line 0)
             seen_ids = set()
-            unique_indices = []
-            for i in embed_indices:
-                ch = all_chunks[i]
-                cid = self.vs._chunk_id(ch)
-                if cid not in seen_ids:
-                    seen_ids.add(cid)
-                    unique_indices.append(i)
-            if len(unique_indices) < len(embed_indices):
-                print(f"[Indexer] Dedup: {len(embed_indices)} -> {len(unique_indices)} unique chunks")
+            unique_pairs = []
+            for ch, emb in pairs:
+                cid = chunk_key(ch)
+                if cid in seen_ids:
+                    continue
+                seen_ids.add(cid)
+                unique_pairs.append((ch, emb))
+            if len(unique_pairs) < len(pairs):
+                print(f"[Indexer] Dedup: {len(pairs)} -> {len(unique_pairs)} unique chunks")
 
-            # Store in vector DB
-            store_chunks = [all_chunks[i] for i in unique_indices]
-            # Map dedup indices back to embedding array positions
-            emb_positions = [embed_indices.index(i) for i in unique_indices]
-            store_embs = embeddings[emb_positions]
-            self.vs.add_chunks(store_chunks, store_embs)
+            embeddings = np.vstack([emb for _, emb in unique_pairs])
+            self.vs.add_chunks([ch for ch, _ in unique_pairs], embeddings)
 
-        # Rebuild BM25 (with ALL chunks for keyword search, including config-only)
+        # Rebuild BM25 from the whole corpus — keyword search must not depend on
+        # which files happened to change
         self._rebuild_bm25(all_chunks)
 
         # Save metadata
@@ -190,7 +167,8 @@ class Indexer:
         if os.path.exists(lock_path):
             os.remove(lock_path)
 
-        print(f"[Indexer] Index build complete: {len(files)} files, {len(all_chunks)} chunks")
+        print(f"[Indexer] Index build complete: {len(files)} files, "
+              f"{len(all_chunks)} chunks ({len(embed_items)} embedded)")
 
     def _rebuild_bm25(self, all_chunks):
         print("[Indexer] Rebuilding BM25 index...")
@@ -230,17 +208,13 @@ class Indexer:
             pass
 
 
-# Need numpy for vstack
-import numpy as np
-
-
 # ── File-level semantic tags ──
 # These provide natural-language context so the embedding model understands
 # WHAT a file is, not just what code it contains.
 
 _FILE_SEMANTIC_TAGS = {
     # ═══ Main 分支 — 后端 ═══
-    'app/config.py': '智能识图小程序后端全局配置 千问qwen-vl-max视觉模型 DeepSeek文本模型 API密钥 火山引擎已废弃',
+    'app/config.py': '智能识图小程序后端全局配置 当前使用千问qwen-vl-max视觉模型和DeepSeek文本模型 火山引擎volc配置已废弃仅保留字段',
     'app/main.py': '智能识图小程序FastAPI应用入口 AppKey鉴权中间件 限流中间件 CORS配置 路由注册 生产环境关闭文档页',
     'app/routers/recognize.py': '智能识图后端业务路由 场景识别 URL和文件上传 OCR文字提取 AI图片问答 chat/file用Form接收messages_json 标签详情 文件魔数校验 SSRF防护',
     'app/services/scene_recognition.py': '智能识图千问VL Max场景识别服务 图片压缩resize OpenAI兼容格式 结构化prompt返回Description和Tags JSON解析 复合标签风格 单例模式',
@@ -277,8 +251,15 @@ _FILE_SEMANTIC_TAGS = {
     'frontend/cloudfunctions/login/index.js': '智能识图云函数 获取用户openid wxContext',
     'frontend/cloudfunctions/proxyApi/index.js': '智能识图云函数API代理 FC转发 AppKey服务端存储 识别OCR Chat文件上传代理',
     'frontend/cloudfunctions/moderate/index.js': '智能识图云函数 微信内容安全审核 imgSecCheck 图片鉴黄',
-    # ═══ Release 分支 — 后端 ═══
-    # (Note: release source files are under data/source-release/ with same structure)
+    # ═══ Release 分支 — 后端（使用腾讯云CV API，非AI模型）═══
+    'release::app/config.py': '智能识图RELEASE分支后端配置 使用腾讯云CV API SecretId SecretKey 不使用火山或千问模型 volc配置为遗留代码未实际使用',
+    'release::app/main.py': '智能识图RELEASE分支FastAPI应用入口 AppKey鉴权 限流 CORS 仅注册识别和OCR路由 无AI问答无标签详情',
+    'release::app/routers/recognize.py': '智能识图RELEASE分支路由 仅识别和OCR接口 导入tencent_cv_service 无chat无label-detail路由 文件魔数校验 SSRF防护',
+    'release::app/services/tencent_cv_service.py': '智能识图RELEASE分支核心服务 腾讯云DetectLabelPro图像标签识别 GeneralBasicOCR通用印刷体识别 返回Tags和Description 非AI模型',
+    'release::app/services/scene_recognition.py': '智能识图RELEASE分支死代码 火山方舟旧版识别服务 release路由已不再使用仅保留文件 实际使用tencent_cv_service',
+    'release::app/services/chat_service.py': '智能识图RELEASE分支死代码 火山方舟旧版AI问答服务 release路由已移除上线不需要AI问答功能',
+    'release::app/services/ocr_service.py': '智能识图RELEASE分支死代码 火山方舟旧版OCR服务 release路由已不再使用仅保留文件 实际使用tencent_cv_service',
+    'release::app/services/label_detail_service.py': '智能识图RELEASE分支死代码 DeepSeek旧版标签详情服务 release路由已移除上线不需要此功能',
     # ═══ RAG system frontend ═══
     'frontend/index.html': 'RAG问答系统前端主页面 聊天界面布局 左侧问答记录栏 中间对话区 右侧快捷提问面板 三栏布局',
     'frontend/css/style.css': 'RAG系统前端样式表 浅蓝白配色设计 CSS变量体系 响应式布局 代码块样式 消息气泡 三栏布局',
@@ -317,12 +298,14 @@ def _file_semantic_tag(file_info, chunk=None) -> str:
     AND prepended to code chunks (for BM25 + LLM readability).
     """
     rel = file_info.relative_path.replace('\\', '/')
+    source = file_info.source
 
-    # Exact match for key architectural files
+    # Try source-specific tag first (e.g. 'release::app/config.py'), then generic
+    source_key = f'{source}::{rel}'
+    if source_key in _FILE_SEMANTIC_TAGS:
+        return f'[文件说明: {_FILE_SEMANTIC_TAGS[source_key]}]'
     if rel in _FILE_SEMANTIC_TAGS:
         return f'[文件说明: {_FILE_SEMANTIC_TAGS[rel]}]'
-
-    source = file_info.source
     lang = file_info.language
 
     # Generic by language

@@ -1,10 +1,9 @@
 """ChromaDB vector store wrapper."""
 
 import os
-import hashlib
 import chromadb
 from backend.config import settings
-from backend.indexing.chunker import CodeChunk
+from backend.indexing.chunker import CodeChunk, chunk_key
 
 
 class VectorStore:
@@ -18,8 +17,8 @@ class VectorStore:
         )
 
     def _chunk_id(self, chunk: CodeChunk) -> str:
-        raw = f"{chunk.source}:{chunk.file_path}:{chunk.start_line}:{chunk.end_line}"
-        return hashlib.md5(raw.encode()).hexdigest()[:16]
+        # Same id as BM25Store._chunk_key — see chunker.chunk_key
+        return chunk_key(chunk)
 
     def add_chunks(self, chunks: list[CodeChunk], embeddings, batch_size: int = 5000):
         """Batch insert chunks with embeddings (ChromaDB has max batch size limit)."""

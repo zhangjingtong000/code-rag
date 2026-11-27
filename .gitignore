@@ -1,11 +1,32 @@
+# Python
 __pycache__/
-*.pyc
-*.pkl
+*.py[cod]
+venv/
+.venv/
+
+# 语料、索引与模型（体积大，且包含被索引项目的私有源码）
 data/
+index/
+storage/
 models/
-data/source-*/
-data/chroma_db/
-data/file_hashes.json
-data/chunk_metadata.json
-data/rag_debug.log
-data/.building
+
+# 向量库 / 索引二进制
+*.pkl
+*.faiss
+*.bin
+
+# 密钥
+.env
+.env.*
+
+# 前端依赖
+node_modules/
+
+# 日志
+*.log
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
