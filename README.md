@@ -90,7 +90,15 @@ python run.py
 
 换项目时不用改 Python：`backend/semantic_tags.json` 里 `file_semantic_tags` 的键是相对路径（可加 source 前缀，如 `release::app/config.py`）、值是这个文件做什么，`project_background` 是拼进 LLM 上下文的项目背景。也可以用 `RAG_SEMANTIC_TAGS` 指向另一份配置；文件缺失或格式不对时回退到内置默认值，索引照常可建。
 
-不装模型、不配 key 也能验证检索链路：`pytest -q`（`python -m unittest discover -s tests -v` 等价）。其中 `tests/test_e2e_smoke.py` 是端到端 smoke test：拿本仓库自己的源码当语料，跑「建索引 → 向量 + BM25 检索 → RRF 融合 → 组装上下文」，嵌入用确定性假向量，不连 Ollama、不调 LLM。
+## 测试
+
+```bash
+pytest -q
+```
+
+不装模型、不配 key 也能验证检索链路（`python -m unittest discover -s tests -v` 等价）。其中 `tests/test_e2e_smoke.py` 是端到端 smoke test：拿本仓库自己的源码当语料，跑「建索引 → 向量 + BM25 检索 → RRF 融合 → 组装上下文」，嵌入用确定性假向量，不连 Ollama、不调 LLM。
+
+当前 **16 passed**（10 条离线单测 + 6 条语义配置用例）。
 
 ## 实现要点
 
