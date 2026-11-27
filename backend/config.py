@@ -9,6 +9,30 @@ def get_env(key: str, default: str = '') -> str:
     return default
 
 
+def parse_source_dirs(spec: str) -> list:
+    """Parse a corpus description into scanner entries.
+
+    ``spec`` is split on ``os.pathsep`` (';' on Windows, ':' elsewhere). Each
+    entry is either a bare directory path or ``label=path``; a bare path uses its
+    last path component as the label. Empty entries are ignored.
+    """
+    entries = []
+    for raw in spec.split(os.pathsep):
+        item = raw.strip()
+        if not item:
+            continue
+        if '=' in item:
+            label, _, path = item.partition('=')
+            label, path = label.strip(), path.strip()
+        else:
+            label, path = '', item
+        path = os.path.abspath(os.path.expanduser(path))
+        if not label:
+            label = os.path.basename(path.rstrip('\\/')) or 'source'
+        entries.append({'path': path, 'label': label})
+    return entries
+
+
 @dataclass
 class Settings:
     # DeepSeek API
@@ -20,10 +44,15 @@ class Settings:
     ollama_base_url: str = 'http://127.0.0.1:11434'
     ollama_embed_model: str = 'unclemusclez/jina-embeddings-v2-base-code:q5'
 
-    # Source directories to index (paths resolved at access time)
+    # Source directories to index (paths resolved at access time).
+    # Override with RAG_SOURCE_DIRS, e.g. ``label=C:\code\repo;other=D:\code\x``
+    # (separator = os.pathsep; a bare path takes its basename as label).
     @property
     def source_dirs(self) -> list:
         import os as _os
+        override = get_env('RAG_SOURCE_DIRS')
+        if override:
+            return parse_source_dirs(override)
         root = self.project_root
         return [
             {'path': _os.path.join(root, 'data', 'source-main'), 'label': 'main'},

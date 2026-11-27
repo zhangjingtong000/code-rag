@@ -35,9 +35,9 @@ POST /api/rag/query → query_id → GET /api/rag/query/stream/{id}（SSE）
 backend/        FastAPI：indexing / retrieval / generation / routes / asr
 frontend/       原生 JS 单页（三栏：问答记录 | 对话 | 快捷提问）
 docs/DESIGN.md  设计报告：选型、踩坑、调参速查
-tests/          检索链路离线回归测试
+tests/          离线回归测试 + 端到端 smoke test（pytest -q）
 run.py          启动入口（uvicorn，8001）
-build_index.py  索引构建脚本（full / incremental）
+build_index.py  索引构建脚本（full / incremental，--source-dirs 覆盖语料）
 ```
 
 ## 快速开始
@@ -57,8 +57,11 @@ curl http://127.0.0.1:11434/api/embed -d "{\"model\":\"unclemusclez/jina-embeddi
 # 3. 放入待问答的源码，默认目录 data/source-main/
 #    只扫 .py/.js/.wxml/.wxss/.json/.html/.css；可再建 source-release/、source-rag/ 做多分支对比
 
-# 4. 建索引
-python build_index.py full        # 增量：python build_index.py incremental
+# 4. 建索引（语料不在默认位置时，用 RAG_SOURCE_DIRS 或 --source-dirs 指定）
+#    格式：“标签=路径”，多个用系统路径分隔符（Windows 为 ;）连接
+$env:RAG_SOURCE_DIRS="main=D:\code\my-app;release=D:\code\my-app-release"
+python build_index.py full --source-dirs "main=D:\code\my-app"
+# 增量：python build_index.py incremental
 
 # 5. 启动
 set DEEPSEEK_API_KEY=sk-...       # PowerShell: $env:DEEPSEEK_API_KEY="sk-..."
@@ -66,7 +69,9 @@ python run.py
 # 打开 http://127.0.0.1:8001/frontend/index.html
 ```
 
-不装模型、不配 key 也能验证检索链路：`python -m unittest discover -s tests -v`。
+`RAG_SOURCE_DIRS` 不设时行为不变（默认仍是 `data/source-{main,release,rag}`）。标签只写了路径没写标签时，取目录名当标签。
+
+不装模型、不配 key 也能验证检索链路：`pytest -q`（`python -m unittest discover -s tests -v` 等价）。其中 `tests/test_e2e_smoke.py` 是端到端 smoke test：拿本仓库自己的源码当语料，跑「建索引 → 向量 + BM25 检索 → RRF 融合 → 组装上下文」，嵌入用确定性假向量，不连 Ollama、不调 LLM。
 
 ## 已知问题
 
@@ -77,13 +82,16 @@ python run.py
 3. 增量构建 BM25 只用变更文件重建，未变更文件从此搜不到 → 关键词语料每次全量重建，只有嵌入走增量。
 4. 附带修复：JSON 配置块的 content 原被清空（既没进向量也没进 BM25）；切块器会丢掉首个 `def`/`class` 之前的模块级代码、漏掉 `var X = class {}` 形式、并把 Page 块切两遍；默认排除规则补上 `site-packages`/`venv`。
 
+本轮补上的两处（原先列在「仍然存在」里）：
+
+- **已补端到端测试**：`tests/test_e2e_smoke.py` 覆盖「建索引 → 检索 → 返回结果」全链路并断言至少召回一条。真实的 Ollama 嵌入与 DeepSeek 生成仍不在自动化范围内（要模型 + Key），smoke test 用假嵌入跑通链路，替代了原先那些未入库的一次性集成脚本。
+- **已补语料路径可覆盖**：`RAG_SOURCE_DIRS`（环境变量）与 `build_index.py --source-dirs`（命令行）可指定语料目录，默认值不变；`context_builder` 读整文件时也跟随同一份配置。仍保留的部分：`indexer._FILE_SEMANTIC_TAGS` 与上下文里的项目背景文案是给示例项目（示例小程序项目）写的，换仓库只影响检索质量，不影响跑通。
+
 仍然存在（如实列出）：
 
-- **无端到端测试**：只有 `tests/` 的离线单测；真实嵌入（Ollama）与真实 LLM 调用不在自动化范围内，上述修复靠一次性集成脚本验证，脚本未入库。
-- **语料路径写死**：默认读 `data/source-{main,release,rag}`，语义标签表与上下文里的项目背景文案也是为示例项目（示例小程序项目）写的。换仓库需改 `backend/config.py` 的 `source_dirs` 与 `indexer._FILE_SEMANTIC_TAGS`。
-- **索引不兼容**：chunk id 方案变了，旧索引必须删掉 `data/` 重建。
-- **单机 demo 级**：查询表在进程内存、无鉴权、无并发保护，CORS 全开；ASR 依赖外部工具，异常未兜底。
-- **索引规模脏**：示例语料混入过 `site-packages`（当时 1,287 个文件里 1,111 个是第三方库）。本仓库不附带任何索引数据与模型。
+- **索引不兼容（说明，不是缺陷）**：chunk id 方案变过，旧索引必须删掉 `data/` 重建。
+- **定位是单机 demo，非生产服务**：查询表在进程内存、无鉴权、无并发保护，CORS 全开；ASR 依赖外部工具，异常未兜底。要上线得自己补鉴权、限流、多进程共享状态和 CORS 白名单。
+- **本仓库不附带索引**：`data/`（chroma + BM25 pkl + 元数据）和模型权重都不入库，需按上面的步骤自行构建。仓库也从未附带第三方库语料——早期快照混入过 `site-packages`（1,287 个文件里 1,111 个是第三方库），现已清掉并补了默认排除规则。
 
 ## 技术栈
 

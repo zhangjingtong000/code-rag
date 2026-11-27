@@ -187,14 +187,23 @@ main 和 release 是两个独立分支，同一功能可能实现不同。检索
 ```"""
 
     def _read_source_file(self, source: str, rel_path: str, project_root: str) -> str | None:
-        """Read full source file from data/source-{label}/ directory."""
+        """Read full source file, resolved against the configured corpus dirs."""
+        # settings.source_dirs is the single source of truth for the corpus
+        # (it is what the scanner indexed and it honours RAG_SOURCE_DIRS).
         source_dir_map = {
             'main': 'data/source-main',
             'release': 'data/source-release',
             'rag': 'data/source-rag',
         }
+        for entry in settings.source_dirs:
+            if entry.get('label') == source:
+                source_dir_map[source] = entry.get('path', '')
+                break
+
         dir_name = source_dir_map.get(source, f'data/source-{source}')
-        full_path = os.path.join(project_root, dir_name, rel_path)
+        if not os.path.isabs(dir_name):
+            dir_name = os.path.join(project_root, dir_name)
+        full_path = os.path.join(dir_name, rel_path)
 
         if not os.path.exists(full_path):
             return None
