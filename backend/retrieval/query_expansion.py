@@ -5,7 +5,7 @@ from backend.config import settings
 # Domain-specific Chinese → English term mapping
 # Organized by subsystem for maintainability
 TERM_MAP = {
-    # ── Project Domain (WeChat Mini-Program) ──
+    # ── 通用代码词汇（并附带一批小程序 / 图像域的常见术语）──
     '登录': ['login', 'auth', 'authentication', 'signin'],
     '注册': ['register', 'signup'],
     '鉴权': ['auth', 'authorization', 'authenticate', 'appkey'],

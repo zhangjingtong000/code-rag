@@ -48,7 +48,7 @@
     <main id="messages">
       <div class="welcome-mini" id="welcome-mini">
         <span class="welcome-mini-icon">&#x276F;_</span>
-        代码分析助手 — 可询问小程序项目、分支对比、RAG系统实现的任何代码问题
+        代码分析助手 — 可询问本项目的分块、检索融合、上下文组装与接口实现
       </div>
     </main>
 
@@ -86,46 +86,45 @@
     <div class="panel-body">
       <div class="panel-section">
         <div class="panel-section-title">快速入门</div>
-        <button class="panel-chip" onclick="askExample(this)">项目有哪些页面和功能？</button>
-        <button class="panel-chip" onclick="askExample(this)">项目的整体技术架构是什么？</button>
-        <button class="panel-chip" onclick="askExample(this)">main 和 release 分支有什么区别？</button>
-        <button class="panel-chip" onclick="askExample(this)">后端有哪些 API 接口？</button>
+        <button class="panel-chip" onclick="askExample(this)">这个项目怎么建索引？</button>
+        <button class="panel-chip" onclick="askExample(this)">项目的整体架构分几层，各在哪几个目录？</button>
+        <button class="panel-chip" onclick="askExample(this)">语料目录不在默认位置时怎么指定？</button>
+        <button class="panel-chip" onclick="askExample(this)">支持哪些文件类型？</button>
       </div>
       <div class="panel-section">
-        <div class="panel-section-title">场景识别</div>
-        <button class="panel-chip" onclick="askExample(this)">场景识别现在用的是什么模型？</button>
-        <button class="panel-chip" onclick="askExample(this)">识别 prompt 是怎么设计的？标签有什么要求？</button>
-        <button class="panel-chip" onclick="askExample(this)">一次完整识别的数据流是怎样的？</button>
-        <button class="panel-chip" onclick="askExample(this)">识别结果如何保存？图片压缩怎么做的？</button>
-        <button class="panel-chip" onclick="askExample(this)">OCR 是怎么实现的？用的什么模型？</button>
+        <div class="panel-section-title">检索与分块</div>
+        <button class="panel-chip" onclick="askExample(this)">BM25 和向量检索是怎么融合的？</button>
+        <button class="panel-chip" onclick="askExample(this)">RRF 公式里的 k 是多少，来源加权是做什么的？</button>
+        <button class="panel-chip" onclick="askExample(this)">Python 文件是怎么按函数和类切块的？</button>
+        <button class="panel-chip" onclick="askExample(this)">WXSS 和 JSON 为什么整文件一块？</button>
+        <button class="panel-chip" onclick="askExample(this)">同一个文件最多保留几个块，为什么？</button>
       </div>
       <div class="panel-section">
-        <div class="panel-section-title">AI 问答</div>
-        <button class="panel-chip" onclick="askExample(this)">AI 问答的图片是怎么传给模型的？</button>
-        <button class="panel-chip" onclick="askExample(this)">has_image 字段在前后端怎么传递的？</button>
-        <button class="panel-chip" onclick="askExample(this)">无图片时 AI 怎么防止编造内容？</button>
-        <button class="panel-chip" onclick="askExample(this)">云文件 ID 和远程 URL 怎么在问答中处理？</button>
-        <button class="panel-chip" onclick="askExample(this)">重载按钮是怎么工作的？</button>
+        <div class="panel-section-title">上下文组装</div>
+        <button class="panel-chip" onclick="askExample(this)">上下文 32K 预算是怎么分配的？</button>
+        <button class="panel-chip" onclick="askExample(this)">单个文件超过预算时怎么截断？</button>
+        <button class="panel-chip" onclick="askExample(this)">截断处为什么要留一行标注？</button>
+        <button class="panel-chip" onclick="askExample(this)">命中行 ±300 行是怎么用的？</button>
       </div>
       <div class="panel-section">
-        <div class="panel-section-title">前端与登录</div>
-        <button class="panel-chip" onclick="askExample(this)">登录和 openid 获取流程是怎样的？</button>
-        <button class="panel-chip" onclick="askExample(this)">本地缓存和云数据库怎么协作？</button>
-        <button class="panel-chip" onclick="askExample(this)">tabBar 的四个入口分别是什么？</button>
-        <button class="panel-chip" onclick="askExample(this)">批量识别和图片对比怎么实现的？</button>
+        <div class="panel-section-title">生成与流式</div>
+        <button class="panel-chip" onclick="askExample(this)">SSE 流式回答是怎么实现的？</button>
+        <button class="panel-chip" onclick="askExample(this)">System 和 User 提示词各放什么？</button>
+        <button class="panel-chip" onclick="askExample(this)">候选超过多少条会触发 DeepSeek 重排？</button>
+        <button class="panel-chip" onclick="askExample(this)">没有 API Key 时哪条链路还能跑？</button>
       </div>
       <div class="panel-section">
-        <div class="panel-section-title">RAG 系统</div>
-        <button class="panel-chip" onclick="askExample(this)">RAG 系统怎么向量检索代码的？</button>
-        <button class="panel-chip" onclick="askExample(this)">混合检索和 RRF 融合逻辑是什么？</button>
-        <button class="panel-chip" onclick="askExample(this)">代码分块和语义标签是怎么做的？</button>
-        <button class="panel-chip" onclick="askExample(this)">索引构建的完整流程是什么？</button>
+        <div class="panel-section-title">配置与扩展</div>
+        <button class="panel-chip" onclick="askExample(this)">换一个项目要改哪些配置？</button>
+        <button class="panel-chip" onclick="askExample(this)">文件语义标签和项目背景在哪里改？</button>
+        <button class="panel-chip" onclick="askExample(this)">RAG_SEMANTIC_TAGS 是干什么的？</button>
+        <button class="panel-chip" onclick="askExample(this)">增量构建时为什么关键词索引要全量重建？</button>
       </div>
       <div class="panel-section">
-        <div class="panel-section-title">架构与安全</div>
-        <button class="panel-chip" onclick="askExample(this)">后端做了哪些安全防护？</button>
-        <button class="panel-chip" onclick="askExample(this)">release 分支上线做了哪些合规处理？</button>
-        <button class="panel-chip" onclick="askExample(this)">前后端部署分别在哪里？环境变量怎么配置？</button>
+        <div class="panel-section-title">测试与部署</div>
+        <button class="panel-chip" onclick="askExample(this)">不装模型、不配 key 怎么跑测试？</button>
+        <button class="panel-chip" onclick="askExample(this)">端到端 smoke test 用的是哪份语料和什么向量？</button>
+        <button class="panel-chip" onclick="askExample(this)">服务怎么启动，默认端口是多少？</button>
       </div>
     </div>
   </aside>

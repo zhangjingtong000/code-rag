@@ -1,8 +1,8 @@
 """Semantic tags & project background — externalised configuration.
 
-标签表与项目背景文案原本写死在 ``indexer.py`` / ``context_builder.py`` 里，是为
-示例项目（示例小程序项目）准备的。现在两者都从
-``backend/semantic_tags.json`` 读：换项目时改这个 JSON 即可，不用动 Python 源码。
+标签表与项目背景文案从 ``backend/semantic_tags.json`` 读，默认描述的是本仓库
+自身的源码（代码库问答 RAG）。换一份语料时改这个 JSON（或用
+``RAG_SEMANTIC_TAGS`` 指向另一份），不用动 Python 源码。
 
 配置文件缺失或格式不对时回退到内置默认值，索引与上下文仍能构建。
 """
