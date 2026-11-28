@@ -6,9 +6,11 @@
 ``include_router`` 时就抛 "Form data requires python-multipart to be
 installed."，应用直接起不来，而 18 条单测仍然全绿。
 
-这条用例锁住整条装配链：应用对象能 import 出来、``app.routes`` 非空、health /
-query / audio / index 四条路由真的挂上了、audio 路由按 multipart 解析上传
-（就是上面那个依赖点），并且 OpenAPI schema 能生成（会走一遍所有路由依赖）。
+断言只看稳定接口：``app.routes`` 非空、OpenAPI schema 里四条路由都在、
+audio 路由的请求体是 ``multipart/form-data``（就是上面那个依赖点）。
+不直接翻 ``app.routes`` 里的 APIRoute——FastAPI 0.165 起 ``include_router``
+改成用 ``_IncludedRouter`` 包一层，子路由不再摊平进 ``app.routes``。
+
 不启动服务、不连模型、不需要 API Key。
 
 Run:  pytest -q        （也可以 python -m unittest discover -s tests -v）
@@ -31,33 +33,27 @@ class AppAssemblyTest(unittest.TestCase):
     def test_app_imports_and_routes_assembled(self):
         self.assertTrue(app.routes, 'app.routes 为空：路由一个都没装上')
 
-        paths = {getattr(r, 'path', '') for r in app.routes}
+        schema = app.openapi()
+        self.assertEqual(schema['info']['title'], 'RAG Code Q&A System')
+
+        paths = schema['paths']
         for expected in (
             '/api/rag/health',
-            '/api/rag/query',
             '/api/rag/index/status',
+            '/api/rag/index/rebuild',
+            '/api/rag/query',
             '/api/rag/audio/transcribe',
         ):
             self.assertIn(expected, paths, f'{expected} 没有装配上')
 
-        # audio 路由的 File(...) 就是 python-multipart 的隐式依赖
-        audio = [
-            r for r in app.routes
-            if getattr(r, 'path', '') == '/api/rag/audio/transcribe'
-        ]
-        self.assertEqual(len(audio), 1)
-        body_field = audio[0].body_field
-        self.assertIsNotNone(body_field, 'audio 路由没有解析出文件上传字段')
-        self.assertEqual(
-            getattr(body_field.field_info, 'media_type', ''),
-            'multipart/form-data',
+        # audio 路由的 File(...) 就是 python-multipart 的隐式依赖：
+        # 解析成 multipart/form-data 才说明 File(...) 真的生效了
+        audio_post = paths['/api/rag/audio/transcribe']['post']
+        content = audio_post.get('requestBody', {}).get('content', {})
+        self.assertIn(
+            'multipart/form-data', content,
             'audio 路由没有按 multipart 解析上传（File(...) 未生效）',
         )
-
-        # OpenAPI 生成会遍历全部路由依赖，能建出来说明装配完整
-        schema = app.openapi()
-        self.assertEqual(schema['info']['title'], 'RAG Code Q&A System')
-        self.assertIn('/api/rag/audio/transcribe', schema['paths'])
 
 
 if __name__ == '__main__':
