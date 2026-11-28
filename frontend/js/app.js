@@ -55,6 +55,9 @@ var ChatApp = class ChatApp {
       } else if (data.index_status === 'building') {
         this._setStatus('building', '索引中...');
         this._pollIndexStatus();
+      } else if (data.index_status === 'error') {
+        this._setStatus('offline', '索引异常');
+        this._pollIndexStatus();
       } else {
         this._setStatus('offline', '未构建索引');
       }
@@ -72,6 +75,9 @@ var ChatApp = class ChatApp {
         setTimeout(() => this._pollIndexStatus(), 2000);
       } else if (data.status === 'ready') {
         this._setStatus('ready', '就绪');
+      } else if (data.status === 'error') {
+        this._setStatus('offline', '索引异常');
+        if (data.progress) this._showToast(data.progress);
       } else {
         this._setStatus('offline', '未构建索引');
       }
@@ -154,7 +160,11 @@ var ChatApp = class ChatApp {
         }),
       });
 
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      if (!resp.ok) {
+        // 409（索引为空 / 未构建）之类要显示后端给的说明，不能只剩 HTTP 409
+        var errBody = await resp.json().catch(function () { return {}; });
+        throw new Error(errBody.detail || ('HTTP ' + resp.status));
+      }
 
       var data = await resp.json();
       this.streamHandler = new StreamHandler(data.stream_url, this);
@@ -172,14 +182,19 @@ var ChatApp = class ChatApp {
     }
   }
 
-  _getChatHistory() {
+  _getChatHistory(excludeTail) {
+    // 调用发生在「当前问题」和「空的助手占位」都推进 this.messages 之后，
+    // 所以末尾 2 条必须排除——否则当前问题既在 chat_history 里，又由
+    // backend 单独作为 question 拼进去，同一句话被注入两次。
     var history = [];
-    var recent = this.messages.slice(-11, -1);
-    for (var i = 0; i < recent.length; i++) {
-      var msg = recent[i];
-      if (msg.role !== 'system') {
-        history.push({ role: msg.role, content: msg.raw || msg.content });
-      }
+    var end = this.messages.length - (excludeTail === undefined ? 2 : excludeTail);
+    var start = Math.max(0, end - 10);  // 最多 10 条 = 5 轮
+    for (var i = start; i < end; i++) {
+      var msg = this.messages[i];
+      if (msg.role === 'system') continue;
+      var content = msg.raw || msg.content;
+      if (!content) continue;
+      history.push({ role: msg.role, content: content });
     }
     return history;
   }
@@ -251,7 +266,12 @@ var ChatApp = class ChatApp {
     if (this.currentAssistantMsg) {
       var bubble = this.currentAssistantMsg.el.querySelector('.msg-bubble');
       bubble.classList.remove('streaming-cursor');
-      bubble.innerHTML = '<div class="error-msg">' + msg + '</div>';
+      // 错误文案可能带上后端返回的 detail，用 textContent 写入，不拼 HTML
+      bubble.innerHTML = '';
+      var box = document.createElement('div');
+      box.className = 'error-msg';
+      box.textContent = msg;
+      bubble.appendChild(box);
       this.currentAssistantMsg.isStreaming = false;
     }
   }

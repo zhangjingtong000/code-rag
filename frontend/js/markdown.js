@@ -104,13 +104,60 @@ window.copyCode = function (btn, blockId) {
   }
 };
 
+// ── Sanitize ──────────────────────────────────────
+// marked 的输出直接进 innerHTML，而它的输入是 LLM 生成的回答：模型可以复述语料
+// 里的任何文本，语料又是任意源码，所以渲染前必须过一遍白名单。
+// DOMPurify 从 CDN 加载（见 index.html）；拿不到时退化成标签/属性黑名单——弱一
+// 点，但不会因为某个 CDN 被墙就把整页渲染搞崩。
+
+// 渲染器内联的两个处理器是唯一允许保留的 onclick，参数只准是 code-xxxx 这类 id
+var ALLOWED_ONCLICK = /^\s*(?:toggleFold|copyCode)\(\s*(?:this\s*,\s*)?'[A-Za-z0-9_-]+'\s*\)\s*;?\s*$/;
+
+if (window.DOMPurify && !window.__domPurifyHooked) {
+  window.__domPurifyHooked = true;
+  window.DOMPurify.addHook('uponSanitizeAttribute', function (node, data) {
+    if (!/^on/i.test(data.attrName)) return;
+    var ok = data.attrName.toLowerCase() === 'onclick' &&
+      ALLOWED_ONCLICK.test(data.attrValue || '');
+    if (!ok) data.keepAttr = false;
+  });
+}
+
+function fallbackSanitize(html) {
+  return html
+    // 成对出现的危险容器，连内容一起丢掉
+    .replace(/<\s*(script|style|iframe|object|embed|form|svg|math)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+    // 未闭合 / 自闭合的同类标签
+    .replace(/<\s*\/?\s*(script|style|iframe|object|embed|link|meta|base|form|svg|math)\b[^>]*>/gi, '')
+    // 所有内联事件属性
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    // javascript: 协议
+    .replace(/(href|src|xlink:href)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, '$1=$2#$2');
+}
+
+function sanitizeHtml(html) {
+  if (window.DOMPurify && window.DOMPurify.sanitize) {
+    try {
+      return window.DOMPurify.sanitize(html, {
+        ADD_ATTR: ['onclick'],
+        ALLOW_DATA_ATTR: true,
+      });
+    } catch (e) {
+      console.warn('[Markdown] DOMPurify 失败，退回黑名单过滤:', e);
+    }
+  }
+  return fallbackSanitize(html);
+}
+
 // ── Render markdown to HTML ───────────────────────
 
 window.renderMarkdown = function (text) {
   if (!text) return '';
+  var html;
   try {
-    return marked.parse(text);
+    html = marked.parse(text);
   } catch (e) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
+  return sanitizeHtml(html);
 };
