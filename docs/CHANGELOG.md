@@ -59,6 +59,10 @@ README 只留定位与用法，细节都放这里。
 - README：Windows / macOS 快速开始分开写，`RAG_SOURCE_DIRS` 分隔符说明
   （`;` vs `:`），加 CI / License / Python badge，说明 `tests/` 不进自举索引、
   SSE 不做断点续传。
+- 自举建索引时跳过索引产物目录 `data/`：`data/chunk_metadata.json`、
+  `data/file_hashes.json` 以前会被当成源码索引进去（自举扫描 37 个文件而不是
+  35），每次重建内容还在变。默认语料 `data/source-*` 不受影响，仍能正常扫描。
+  `tests/test_scanner.py::DataDirSkipTest` 锁住两种情况。
 
 ## 2026-11-28：把「只修一半」的问题补齐
 

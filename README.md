@@ -152,7 +152,7 @@ run.py         服务入口
 
 ```bash
 pip install -r requirements-dev.txt   # 运行依赖 + pytest + ruff + httpx
-pytest -q                             # 78 passed，不需要模型和 API Key
+pytest -q                             # 80 passed，不需要模型和 API Key
 ```
 
 离线覆盖分块边界、检索融合、上下文预算、行号、整文件回退、SSE 心跳、HTTP 状态码、ASR 错误分层和路由装配；`tests/test_e2e_smoke.py` 用本仓库源码加假向量跑通「建索引 → 双路检索 → RRF → 组装上下文」。设计细节见 [docs/DESIGN.md](docs/DESIGN.md)，逐轮修复见 [docs/CHANGELOG.md](docs/CHANGELOG.md)。

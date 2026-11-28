@@ -24,6 +24,19 @@ class CodeScanner:
         # Normalised once; matching is per path segment, never a substring
         self.exclude_patterns = [p.lower() for p in config.exclude_patterns]
         self.exclude_exts = config.exclude_extensions
+        # 索引产物目录（data/）不进语料。自举建索引时 data/chunk_metadata.json、
+        # data/file_hashes.json 会被当成源码索引进去，而且每次重建内容都变，
+        # 让「35 个文件」这类数字每次都不一样。语料目录本身就在 data/ 下时
+        # （默认的 data/source-*）不能跳过，否则语料会被整目录跳过。
+        self.skip_dirs = set()
+        try:
+            data_dir = os.path.normcase(os.path.abspath(config.data_dir))
+        except (AttributeError, TypeError):
+            data_dir = None
+        source_paths = {os.path.normcase(os.path.abspath(e['path']))
+                        for e in self.source_dirs}
+        if data_dir and data_dir not in source_paths:
+            self.skip_dirs.add(data_dir)
 
     def _language(self, path: str) -> str:
         ext = os.path.splitext(path)[1].lower()
@@ -86,6 +99,9 @@ class CodeScanner:
                 continue
 
             for root, dirs, _filenames in os.walk(src_dir):
+                if os.path.normcase(os.path.abspath(root)) in self.skip_dirs:
+                    dirs[:] = []
+                    continue
                 # Filter directories in-place
                 dirs[:] = [d for d in dirs
                            if not d.startswith('.') and not self._excluded(d, is_dir=True)]

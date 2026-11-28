@@ -7,6 +7,7 @@
 
 import os
 import sys
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +46,61 @@ class ExcludeRuleTest(unittest.TestCase):
 
     def test_other_extensions_still_apply(self):
         self.assertFalse(self.scanner._should_include('assets/logo.png'))
+
+
+class DataDirSkipTest(unittest.TestCase):
+    """索引产物目录 data/ 不进语料，但默认语料 data/source-* 照常能扫。"""
+
+    def test_data_dir_is_skipped(self):
+        with tempfile.TemporaryDirectory(prefix='rag-scan-') as tmp:
+            data_dir = os.path.join(tmp, 'data')
+            src_dir = os.path.join(tmp, 'corpus')
+            os.makedirs(os.path.join(data_dir, 'chroma_db'))
+            os.makedirs(os.path.join(src_dir, 'backend'))
+            for path in (
+                os.path.join(data_dir, 'chunk_metadata.json'),
+                os.path.join(src_dir, 'backend', 'app.py'),
+            ):
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write('{}' if path.endswith('.json') else 'VALUE = 1\n')
+
+            cfg = Settings()
+            self.assertIsInstance(cfg, Settings)
+
+            class _Cfg(Settings):
+                @property
+                def data_dir(self):
+                    return data_dir
+
+                @property
+                def source_dirs(self):
+                    return [{'path': src_dir, 'label': 'corpus'}]
+
+            found = {f.relative_path for f in CodeScanner(_Cfg()).scan()}
+
+        self.assertIn('backend/app.py', found)
+        self.assertNotIn('chunk_metadata.json', found)
+
+    def test_corpus_inside_data_dir_is_not_skipped(self):
+        """默认语料就是 data/source-rag，跳过 data/ 会把语料整目录干掉。"""
+        with tempfile.TemporaryDirectory(prefix='rag-scan-') as tmp:
+            src_dir = os.path.join(tmp, 'data', 'source-rag')
+            os.makedirs(src_dir)
+            with open(os.path.join(src_dir, 'app.py'), 'w', encoding='utf-8') as f:
+                f.write('VALUE = 1\n')
+
+            class _Cfg(Settings):
+                @property
+                def data_dir(self):
+                    return os.path.join(tmp, 'data')
+
+                @property
+                def source_dirs(self):
+                    return [{'path': src_dir, 'label': 'rag'}]
+
+            found = {f.relative_path for f in CodeScanner(_Cfg()).scan()}
+
+        self.assertIn('app.py', found, 'data/source-rag 被当成索引产物跳过了')
 
 
 if __name__ == '__main__':
