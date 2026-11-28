@@ -19,14 +19,11 @@ class StreamHandler {
     this.abortController = new AbortController();
 
     try {
-      const headers = {};
-      if (this.lastEventId) {
-        headers['Last-Event-ID'] = this.lastEventId;
-      }
-
+      // 服务端会发 `id:`，但它不重放已经发出的 token（回答问题不是可重放
+      // 的日志），所以这里不发送 Last-Event-ID——上一版发了，服务器根本不看，
+      // 等于对外宣称一个不存在的断点续传能力。lastEventId 只用于记录进度。
       const response = await fetch(this.url, {
         signal: this.abortController.signal,
-        headers,
       });
 
       if (!response.ok) {

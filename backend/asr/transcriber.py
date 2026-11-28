@@ -76,6 +76,27 @@ def _transcribe_cli(audio_path: str) -> str:
         return ""
 
 
+def _resolve_model_path() -> str:
+    """Local model dir when it exists, otherwise the HF repo id.
+
+    The comment used to promise this fallback but the code never implemented it:
+    with qwen-asr installed and no model downloaded, the project-rooted
+    ``models/qwen3-asr-0.6b`` path was passed straight to ``from_pretrained``,
+    which raises ``ValueError("... is not a valid model identifier")``. audio.py
+    only caught RuntimeError, so the endpoint answered 500 instead of the
+    documented 503 "ASR backend unavailable".
+    """
+    model_dir = settings.asr_model_dir
+    if model_dir:
+        candidate = (model_dir if os.path.isabs(model_dir)
+                     else os.path.join(settings.project_root, model_dir))
+        if os.path.isdir(candidate):
+            return candidate
+        print(f"[ASR] 本地模型目录不存在：{candidate}，退回 HF repo id "
+              f"{settings.asr_model_name}", flush=True)
+    return settings.asr_model_name
+
+
 def _transcribe_python(audio_path: str) -> str:
     """Use official qwen-asr Python package."""
     try:
@@ -87,16 +108,18 @@ def _transcribe_python(audio_path: str) -> str:
     if not hasattr(_transcribe_python, "_model"):
         print("[ASR] Loading Qwen3-ASR model (first use)...", flush=True)
         import torch
-        # Prefer local model dir, fall back to HF model name
-        model_path = settings.asr_model_dir or settings.asr_model_name
-        if settings.asr_model_dir and not os.path.isabs(model_path):
-            model_path = os.path.join(settings.project_root, model_path)
+        model_path = _resolve_model_path()
         print(f"[ASR] Model path: {model_path}", flush=True)
-        _transcribe_python._model = Qwen3ASRModel.from_pretrained(
-            model_path,
-            dtype=torch.bfloat16,
-            device_map=settings.asr_device,
-        )
+        try:
+            _transcribe_python._model = Qwen3ASRModel.from_pretrained(
+                model_path,
+                dtype=torch.bfloat16,
+                device_map=settings.asr_device,
+            )
+        except Exception as exc:
+            # 模型加载失败 = 后端不可用。抛 RuntimeError，让 /audio/transcribe
+            # 按注释承诺返回 503，而不是被 ValueError 落进 500 分支。
+            raise RuntimeError(f"Qwen3-ASR model unavailable: {exc}") from exc
 
     model = _transcribe_python._model
     results = model.transcribe(audio=audio_path)

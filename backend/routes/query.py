@@ -40,9 +40,19 @@ def _log(msg: str):
         pass
 
 
-def _sse_event(event: str, data: dict) -> str:
-    """Format an SSE event."""
-    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+def _sse_event(event: str, data: dict, event_id: int | None = None) -> str:
+    """Format an SSE event.
+
+    ``id`` is emitted too: the browser/fetch layer stores it, and a client can
+    tell where a dropped stream stopped. (Token streams are not replayed, so the
+    server does not honour ``Last-Event-ID`` — see frontend/js/streaming.js.)
+    """
+    lines = []
+    if event_id is not None:
+        lines.append(f"id: {event_id}")
+    lines.append(f"event: {event}")
+    lines.append(f"data: {json.dumps(data, ensure_ascii=False)}")
+    return '\n'.join(lines) + '\n\n'
 
 
 def _iter_tokens_with_heartbeat(tokens, heartbeat_seconds: float = HEARTBEAT_SECONDS):
@@ -134,6 +144,13 @@ def stream_query(query_id: str):
     qdata["status"] = "streaming"
 
     def generate():
+        seq = 0
+
+        def _emit(event: str, data: dict) -> str:
+            nonlocal seq
+            seq += 1
+            return _sse_event(event, data, event_id=seq)
+
         try:
             from backend.retrieval.query_expansion import expand_query_llm
             from backend.indexing.embedding import EmbeddingService
@@ -179,14 +196,17 @@ def stream_query(query_id: str):
                     source_files.append(f"{meta.get('source', '')}:{fpath}")
             source_files = list(set(source_files))
             _log(f"Top files: {source_files[:5]}")
-            yield _sse_event("metadata", {
+            yield _emit("metadata", {
                 "files_count": len(source_files),
                 "files": source_files,
             })
 
-            # 6. Cross-encoder rerank (universal quality boost)
+            # 6. Cross-encoder rerank (universal quality boost). top_n matches
+            # the threshold: rerank() returns early when
+            # `len(candidates) <= top_n`, so top_n=20 silently skipped every
+            # 16–20-candidate query while README claimed "候选超过 15 条时重排".
             if len(fusion_results) > 15:
-                fusion_results = rerank(question, fusion_results, top_n=20)
+                fusion_results = rerank(question, fusion_results, top_n=15)
                 _log(f"Reranked to {len(fusion_results)} candidates")
 
             # 7. Build context
@@ -218,15 +238,15 @@ def stream_query(query_id: str):
                     yield ": heartbeat\n\n"
                     continue
                 full_text += payload
-                yield _sse_event("token", {"text": payload})
+                yield _emit("token", {"text": payload})
 
             _log(f"Done. Total output: {len(full_text)} chars, {len(full_text.split())} words")
-            yield _sse_event("done", {"full_text": full_text})
+            yield _emit("done", {"full_text": full_text})
 
         except Exception as e:
             import traceback
             _log(f"ERROR: {e}\n{traceback.format_exc()}")
-            yield _sse_event("error", {"error": str(e)})
+            yield _emit("error", {"error": str(e)})
         finally:
             qdata["status"] = "completed"
             _query_store.pop(query_id, None)

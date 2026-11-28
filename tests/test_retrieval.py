@@ -122,10 +122,13 @@ class ExpandQueryWordBoundaryTest(unittest.TestCase):
     修复前 fusion 改成了词边界，query_expansion 仍是 `'rag' in ...`，
     于是 "average latency of the search" 会被扩出 source-rag / index.html /
     style.css / app.js 等一串写死的本仓库文件名。这里与 RagWordBoundaryTest
-    对称：不命中时不注入，命中时仍然注入，且两条路径必须给出同一结论。
+    对称：不命中时不注入，命中时仍然注入来源方向词，且两条路径必须给出同一
+    结论。另外锁住「注入的是方向词，不是写死的文件名」。
     """
 
     REPO_TERMS = ('source-rag', 'rag-system', 'index.html', 'app.js', 'transcriber')
+    HARDCODED_FILENAMES = ('index.html', 'style.css', 'app.js', 'markdown.js',
+                           'ChatApp', 'StreamHandler', 'audio.py', '_initMic', 'mic-btn')
 
     def test_english_words_containing_rag_do_not_inject_repo_files(self):
         for question in ('average latency?', 'drag handler', 'fragment cache',
@@ -134,9 +137,16 @@ class ExpandQueryWordBoundaryTest(unittest.TestCase):
             for term in self.REPO_TERMS:
                 self.assertNotIn(term, expanded, f'{question!r} 被注入了 {term}')
 
-    def test_standalone_rag_still_injects_repo_files(self):
+    def test_standalone_rag_still_injects_source_hint(self):
         for question in ('rag 的前端怎么组织', '这个项目的rag在哪', 'RAG pipeline 是什么'):
             self.assertIn('source-rag', expand_query(question), question)
+
+    def test_rag_context_never_injects_hardcoded_filenames(self):
+        """rag 上下文里只该出现方向词，不该出现本仓库的文件名。"""
+        for question in ('rag 的前端怎么组织', '这个项目的rag在哪', '问答系统怎么做的'):
+            expanded = expand_query(question)
+            for term in self.HARDCODED_FILENAMES:
+                self.assertNotIn(term, expanded, f'{question!r} 被注入了写死的 {term}')
 
     def test_question_answering_system_still_injects(self):
         self.assertIn('source-rag', expand_query('问答系统怎么做的'))

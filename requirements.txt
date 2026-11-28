@@ -2,15 +2,15 @@
 # 运行依赖（Python 3.10+，实测环境 3.13）
 # 首行的编码声明别删：pip 读 requirements 时按 PEP 263 识别编码，识别不到就退回
 # 系统 locale（中文 Windows 是 cp936/GBK），中文注释会让 pip 直接 UnicodeDecodeError。
-fastapi>=0.104.1
+fastapi>=0.104.1,<1.0
 # backend/routes/audio.py 用 UploadFile = File(...)；缺了这个包，路由装配阶段
 # 就会抛 "Form data requires python-multipart to be installed."，整个应用起不来。
-python-multipart>=0.0.6
-uvicorn>=0.24.0
-chromadb>=0.4.0
-rank-bm25>=0.2.2
-requests>=2.28.0
-numpy>=1.24.0
+python-multipart>=0.0.6,<1.0
+uvicorn>=0.24.0,<1.0
+chromadb>=0.4.0,<2.0
+rank-bm25>=0.2.2,<1.0
+requests>=2.28.0,<3.0
+numpy>=1.24.0,<3.0
 
 # 可选：语音输入（/api/rag/audio/transcribe）
 # transcriber 通过子进程调用外部 ASR 工具，不在此文件中：

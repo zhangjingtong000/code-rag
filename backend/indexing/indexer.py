@@ -189,6 +189,14 @@ class Indexer:
             'files_count': len(files),
             'chunks_count': len(chunks),
             'last_built': datetime.now().isoformat(),
+            # 构建这次索引时真正扫描的语料目录。快速开始里 --source-dirs 只传给
+            # build_index.py，启动的服务进程没有 RAG_SOURCE_DIRS；不把路径记下来，
+            # ContextBuilder 就会回落到不存在的 data/source-<label>，把「整文件
+            # 上下文」静默降级成 chunk 拼接。
+            'source_dirs': [
+                {'label': e.get('label', ''), 'path': e.get('path', '')}
+                for e in settings.source_dirs
+            ],
             'sources': {},
         }
         for ch in chunks:

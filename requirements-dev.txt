@@ -4,5 +4,8 @@
 #
 #   pip install -r requirements-dev.txt
 -r requirements.txt
-pytest>=8.0
-ruff>=0.6
+pytest>=8.0,<9.0
+ruff>=0.6,<1.0
+# tests/test_http_api.py / test_asr_backend.py 用 FastAPI TestClient，
+# 它要求 httpx；缺了 CI 里这两个文件会直接 ImportError。
+httpx>=0.27,<1.0

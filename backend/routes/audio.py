@@ -44,7 +44,12 @@ async def transcribe_audio(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except RuntimeError as e:
+        # 后端不可用（没装 ASR、本地模型没下、子进程起不来）→ 503，
+        # 与 README「没装时 /audio/transcribe 返回 503」一致。
         raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as e:
+        # 音频本身解不开（格式/采样率不对）是客户端问题，别混进 500。
+        raise HTTPException(status_code=422, detail=f"音频无法解析: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
     finally:

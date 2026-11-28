@@ -4,42 +4,43 @@ from backend.config import settings
 from backend.retrieval.fusion import _RAG_WORD
 
 # Domain-specific Chinese → English term mapping
-# Organized by subsystem for maintainability
+# Organized by subsystem for maintainability.
+# 这份表是给「本仓库自身源码」这套语料配的（约 150 组），换语料应当改表：
+# 里面只保留通用编程词汇与本项目术语，不含任何其它项目的 API 名称。
 TERM_MAP = {
-    # ── 通用代码词汇（并附带一批小程序 / 图像域的常见术语）──
+    # ── 通用代码词汇 ──
     '登录': ['login', 'auth', 'authentication', 'signin'],
     '注册': ['register', 'signup'],
-    '鉴权': ['auth', 'authorization', 'authenticate', 'appkey'],
+    '鉴权': ['auth', 'authorization', 'authenticate', 'apikey'],
     '识别': ['recognize', 'recognition', 'detect', 'classification'],
     '图像识别': ['image recognition', 'recognize', 'scene recognition'],
     '场景': ['scene', 'scenery', 'scenario'],
     '标签': ['tag', 'label', 'classification'],
     '分类': ['category', 'classification', 'classify'],
     '图片': ['image', 'picture', 'photo'],
-    '上传': ['upload', 'file upload', 'chooseMedia'],
-    '压缩': ['compress', 'resize', 'compression', 'compressImage'],
+    '上传': ['upload', 'file upload', 'multipart'],
+    '压缩': ['compress', 'resize', 'compression'],
     '文字': ['text', 'ocr', 'character'],
     '提取': ['extract', 'extraction'],
     '问答': ['chat', 'qa', 'question answering'],
     '对话': ['chat', 'conversation', 'dialogue'],
-    '缓存': ['cache', 'caching', 'wx.setStorageSync'],
-    '存储': ['store', 'storage', 'persist', 'cloud storage'],
+    '缓存': ['cache', 'caching', 'cache hit'],
+    '存储': ['store', 'storage', 'persist'],
     '记录': ['record', 'history', 'log'],
     '收藏': ['favorite', 'bookmark', 'star'],
     '分享': ['share', 'forward'],
-    '云函数': ['cloud function', 'cloudfunction', 'faas', 'wx.cloud.callFunction'],
-    '数据库': ['database', 'db', 'cloud database', 'wx.cloud.database'],
-    '页面': ['page', 'view', 'screen', 'navigateTo'],
+    '数据库': ['database', 'db', 'sqlite'],
+    '页面': ['page', 'view', 'screen'],
     '组件': ['component', 'widget'],
-    '导航': ['navigation', 'navigate', 'router', 'tabBar'],
-    '跳转': ['navigate', 'redirect', 'route', 'navigateTo'],
-    '配置': ['config', 'configuration', 'settings', 'app.json'],
+    '导航': ['navigation', 'navigate', 'router'],
+    '跳转': ['navigate', 'redirect', 'route'],
+    '配置': ['config', 'configuration', 'settings'],
     '接口': ['api', 'interface', 'endpoint', 'API_BASE'],
     '路由': ['router', 'route', 'routing', 'FastAPI'],
     '服务': ['service', 'server', 'FastAPI'],
     '中间件': ['middleware', 'CORS', 'rate limit'],
     '限流': ['rate limit', 'throttle', 'middleware'],
-    '安全': ['security', 'moderate', 'imgSecCheck'],
+    '安全': ['security', 'moderate', 'sanitize'],
     '审核': ['moderate', 'moderation', 'security check'],
     '分支': ['branch', 'main', 'release'],
     '主分支': ['main branch', 'main'],
@@ -161,7 +162,7 @@ TERM_MAP = {
     '主机': ['host', 'server host', '0.0.0.0'],
     '端口': ['port', 'server port', 'uvicorn port'],
     '数据目录': ['data directory', 'data_dir', 'data folder'],
-    '前端': ['frontend', 'static files', 'index.html'],
+    '前端': ['frontend', 'static files', 'web UI'],
     '启动': ['startup', 'server startup', 'on_event startup'],
     '项目根目录': ['project root', 'project_root', 'root dir'],
     'Pydantic': ['pydantic', 'schema', 'data model', 'request model'],
@@ -171,8 +172,6 @@ TERM_MAP = {
 
     # ── Models & APIs ──
     '千问': ['qwen', 'dashscope', 'tongyi'],
-    '火山': ['volcano', 'volcengine', 'doubao'],  # 已废弃，保留兼容
-    '腾讯云': ['tencent cloud', 'cloudbase', 'tencent'],
     '知识库': ['knowledge base', 'index', 'vector store', 'ChromaDB'],
     'ChromaDB': ['ChromaDB', 'chromadb', 'vector database', 'persistent client'],
     '流水线': ['pipeline', 'indexing pipeline', 'processing pipeline'],
@@ -219,18 +218,13 @@ def expand_query(question: str) -> str:
             expansion_terms.extend(en_terms[:3])  # take top 3 to avoid explosion
 
     # ── RAG context disambiguation ──
-    # When user asks about "RAG的前端" / "RAG的检索", bias towards rag source files
+    # 只注入与具体语料无关的方向词。旧实现往这里塞了 20 多个写死的本仓库
+    # 文件名（index.html / style.css / app.js / ChatApp / _initMic …），换一份
+    # 语料就变成往查询里灌不存在的标识符，BM25 反而被这些词带偏。
     if is_rag_context:
         expansion_terms.extend([
-            'source-rag', 'rag-system', 'RAG backend', 'rag frontend',
-            'web page', 'web frontend', 'HTML CSS JS',
-            'index.html', 'style.css', 'app.js', 'markdown.js', 'streaming.js',
-            'ChatApp', 'StreamHandler', 'NoCacheStaticFiles',
-            'frontend layout', 'frontend design', 'frontend/css', 'frontend/js',
-            # Voice / ASR files
-            'audio.py', 'transcriber', 'Qwen3-ASR', 'ASR', 'voice input',
-            'MediaRecorder', '_webmToWav', '_initMic', 'mic-btn',
-            'backend/asr', 'backend/routes/audio',
+            'source-rag', 'RAG backend', 'rag retrieval', 'rag frontend',
+            'web frontend', 'HTML CSS JS', 'frontend layout',
         ])
 
     if expansion_terms:

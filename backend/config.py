@@ -49,23 +49,24 @@ class Settings:
     # (separator = os.pathsep; a bare path takes its basename as label).
     @property
     def source_dirs(self) -> list:
-        import os as _os
         override = get_env('RAG_SOURCE_DIRS')
         if override:
             return parse_source_dirs(override)
         root = self.project_root
         return [
-            {'path': _os.path.join(root, 'data', 'source-main'), 'label': 'main'},
-            {'path': _os.path.join(root, 'data', 'source-release'), 'label': 'release'},
-            {'path': _os.path.join(root, 'data', 'source-rag'), 'label': 'rag'},
+            {'path': os.path.join(root, 'data', 'source-main'), 'label': 'main'},
+            {'path': os.path.join(root, 'data', 'source-release'), 'label': 'release'},
+            {'path': os.path.join(root, 'data', 'source-rag'), 'label': 'rag'},
         ]
 
     # File extensions to include
     include_extensions: tuple = ('.py', '.js', '.wxml', '.wxss', '.json', '.html', '.css')
 
-    # Exclude patterns (directory or filename)
+    # Exclude patterns (directory or filename name match, never a substring)
     # site-packages / venv: vendored third-party code is noise for code QA —
     # in one snapshot it accounted for ~86% of all indexed files.
+    # 'test_' 只匹配文件名前缀（`test_chunker.py`），但 tests/ 目录里全是
+    # `test_*.py`，所以 tests/ 整体不进自举索引——README 已写明。
     exclude_patterns: list = field(default_factory=lambda: [
         '__pycache__', '.git', 'node_modules', 'site-packages', 'venv', '.venv',
         'images', 'package-lock.json', 'project.private.config.json', 'sitemap.json',
@@ -118,39 +119,32 @@ class Settings:
     @property
     def project_root(self) -> str:
         # Config is at <project>/backend/config.py
-        import os as _os
-        return _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+        return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     @property
     def data_dir(self) -> str:
-        import os as _os
-        return _os.path.join(self.project_root, 'data')
+        return os.path.join(self.project_root, 'data')
 
     @property
     def chroma_dir(self) -> str:
-        import os as _os
-        return _os.path.join(self.data_dir, 'chroma_db')
+        return os.path.join(self.data_dir, 'chroma_db')
 
     @property
     def bm25_path(self) -> str:
-        import os as _os
-        return _os.path.join(self.data_dir, 'bm25_index.pkl')
+        return os.path.join(self.data_dir, 'bm25_index.pkl')
 
     @property
     def metadata_path(self) -> str:
-        import os as _os
-        return _os.path.join(self.data_dir, 'chunk_metadata.json')
+        return os.path.join(self.data_dir, 'chunk_metadata.json')
 
     @property
     def filehash_path(self) -> str:
-        import os as _os
-        return _os.path.join(self.data_dir, 'file_hashes.json')
+        return os.path.join(self.data_dir, 'file_hashes.json')
 
     @property
     def asr_temp_dir(self) -> str:
-        import os as _os
-        path = _os.path.join(self.data_dir, 'temp_audio')
-        _os.makedirs(path, exist_ok=True)
+        path = os.path.join(self.data_dir, 'temp_audio')
+        os.makedirs(path, exist_ok=True)
         return path
 
 

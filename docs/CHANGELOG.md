@@ -3,6 +3,63 @@
 记录每轮「静默失效」修复：现象、根因、现在的行为，以及锁住它的离线回归。
 README 只留定位与用法，细节都放这里。
 
+## 2026-11-28（第二轮）：两处「文档说 A、实际做 B」
+
+### 快速开始承诺整文件，实际静默退化成 chunk 拼接
+
+- **现象**：README 写「回答时喂给模型的是整份文件」，但快速开始只执行
+  `python build_index.py full --source-dirs "rag=."`，紧接着的 `python run.py`
+  没有 `RAG_SOURCE_DIRS`。`ContextBuilder._read_source_file()` 按
+  `settings.source_dirs` 找文件，启动时是默认的 `data/source-rag`（不存在），
+  返回 `None` 后静默拼 chunk。
+- **实测**（同一文件 `backend/retrieval/vector_store.py`）：照 README 原样，
+  上下文开头是 `[文件说明: RAG系统向量存储…]`；把语料路径带到服务端后，开头是
+  `"""ChromaDB vector store wrapper."""`，`def search` 落在第 58 行（源文件确为
+  58）。前者没有任何日志或警告。
+- **现在**：`Indexer._save_metadata()` 把构建时的语料路径写进
+  `data/chunk_metadata.json` 的 `source_dirs`；`ContextBuilder` 优先按它解析文件
+  （其次 `RAG_SOURCE_DIRS`，最后旧的 `data/source-<label>`）。真的读不到时打
+  `logger.warning`，并在上下文里显式标注「整文件不可用，以下为 chunk 拼接，
+  行号不可引用」。
+- **锁住**：`tests/test_full_file_context.py::IndexedCorpusPathTest`（不设环境
+  变量也能读到整文件；语料消失时 warning + 标注）。
+
+### 「每段代码标注行号」，但行号是模型编的
+
+- **现象**：System Prompt 硬性要求第 3 条要模型标 `[来源 | 文件 | 行号: X-Y]`，
+  而 `ContextBuilder.build()` 输出的是裸代码块，一个行号都没有。它自己截图里
+  `02-answer.png` 标 `vector_store.py | 行号: 78-95`，实际 `def search` 在
+  58–75 行，整体偏 20 行。
+- **现在**：`_number_lines()` 给每行加真实行号（` 58      def search(...)`），
+  截断切的是同一条行数组，片段里的行号仍然对得上；System Prompt 改成「行号只能
+  取自左侧数字，不得自行推算」。
+- **锁住**：`tests/test_full_file_context.py::LineNumberTest`（完整文件逐行、
+  截断后仍命中第 200 行、截断后仍在预算内）。
+
+### 其他
+
+- `expand_query()` 不再往查询里塞 20 多个写死的本仓库文件名（`index.html`、
+  `style.css`、`app.js`、`ChatApp`、`_initMic`…），只注入 `source-rag`、
+  `RAG backend` 这类与语料无关的方向词；`TERM_MAP` 删掉上一个项目的微信小程序
+  词条（`wx.cloud`、`chooseMedia`、`navigateTo`、`tabBar`、`imgSecCheck`、
+  `腾讯云`、`火山`、`云函数`），157 组。
+- 新增检索评测：`tests/test_retrieval_quality.py` 用本仓库源码建 BM25，对 10
+  个中文问题算 recall@5 与 MRR（当前 0.90 / 0.71），README 里公开了这两个数字。
+- 新增 HTTP 层测试：`tests/test_http_api.py` 覆盖 `/api/rag/query` 的 400/409、
+  SSE 的 `metadata/token/done/id`、未知 query_id 的 404、异常转 `event: error`。
+- ASR 错误分层：本地模型目录不存在时退回 HF repo id（注释承诺过、代码没实现的
+  分支），模型加载失败包装成 `RuntimeError` → 503；音频解不开 → 422。
+  `tests/test_asr_backend.py` 锁住。
+- 重排阈值与 README 对齐：`rerank(..., top_n=15)`，16–20 条候选不再被
+  `len(candidates) <= top_n` 提前返回。
+- SSE 事件补 `id:`；前端删掉实际不生效的 `Last-Event-ID` 续传逻辑。
+- `requirements.txt` 全部加上界；`requirements-dev.txt` 补 `httpx`（TestClient
+  需要）。
+- `config.py` 六个 property 里重复的 `import os as _os` 去掉，统一用顶部 import。
+- README：Windows / macOS 快速开始分开写，`RAG_SOURCE_DIRS` 分隔符说明
+  （`;` vs `:`），加 CI / License / Python badge，说明 `tests/` 不进自举索引、
+  SSE 不做断点续传。
+
 ## 2026-11-28：把「只修一半」的问题补齐
 
 ### `rag` 词边界只修了链路的一半
