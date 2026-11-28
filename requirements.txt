@@ -1,4 +1,7 @@
+# -*- coding: utf-8 -*-
 # 运行依赖（Python 3.10+，实测环境 3.13）
+# 首行的编码声明别删：pip 读 requirements 时按 PEP 263 识别编码，识别不到就退回
+# 系统 locale（中文 Windows 是 cp936/GBK），中文注释会让 pip 直接 UnicodeDecodeError。
 fastapi>=0.104.1
 # backend/routes/audio.py 用 UploadFile = File(...)；缺了这个包，路由装配阶段
 # 就会抛 "Form data requires python-multipart to be installed."，整个应用起不来。
