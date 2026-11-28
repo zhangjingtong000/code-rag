@@ -137,3 +137,29 @@ class BM25Store:
             corpus = [tokenize(doc) for doc in self.documents]
             self.bm25 = BM25Okapi(corpus)
         return True
+
+
+# One BM25Store per pkl per process. `load()` re-tokenises the whole corpus and
+# rebuilds BM25Okapi every time, which the query path paid on *every* query for
+# an index that only build_index touches. Keyed by (mtime, size): a rebuild
+# replaces the file, so the next query drops the stale copy on its own.
+_CACHE: dict = {}
+
+
+def load_cached(path: str) -> "BM25Store":
+    """Load a persisted BM25 index, reusing the in-process copy when unchanged."""
+    try:
+        stamp = (os.path.getmtime(path), os.path.getsize(path))
+    except OSError:
+        stamp = None
+
+    if stamp is not None:
+        cached = _CACHE.get(path)
+        if cached and cached[0] == stamp:
+            return cached[1]
+
+    store = BM25Store()
+    store.load(path)
+    if stamp is not None:
+        _CACHE[path] = (stamp, store)
+    return store

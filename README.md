@@ -4,6 +4,16 @@
 
 **一句话差异**：代码类文件按结构边界切块，不按固定字符数切；检索同时跑语义和精确两条路；上下文以整文件为单元，而不是 top-k 碎片。
 
+<p align="center">
+  <img src="docs/screenshots/01-home.png" width="48%" alt="首页：三栏问答界面，索引状态就绪">
+  <img src="docs/screenshots/02-answer.png" width="48%" alt="一次带代码高亮的回答：来源标注 + Python 语法高亮 + 折叠/复制">
+</p>
+<p align="center">
+  <img src="docs/screenshots/03-voice.png" width="48%" alt="语音输入：按住麦克风录音中，输入框显示「正在聆听...」">
+</p>
+
+<sub>真实运行截图（同一会话）：语料为本仓库自身源码，索引 35 个文件 / 177 个块；第二张是 DeepSeek 对「BM25 和向量检索是怎么融合的？」的真实回答，代码块来自检索命中的 `backend/retrieval/fusion.py`、`backend/retrieval/vector_store.py` 等文件。</sub>
+
 ## 定位
 
 单机代码问答 demo：一份源码目录、一个本地嵌入模型、一个 API Key，起一个进程回答问题。
@@ -100,16 +110,21 @@ python run.py
 ## 测试
 
 ```bash
+pip install -r requirements-dev.txt   # 运行依赖 + pytest
 pytest -q
 ```
 
+只跑服务不需要 `requirements-dev.txt`，`requirements.txt` 就够；测试依赖单独放一份，是因为 `pytest` 从来不是运行时依赖。
+
 不装模型、不配 key 也能验证检索链路（`python -m unittest discover -s tests -v` 等价）。其中 `tests/test_e2e_smoke.py` 是端到端 smoke test：拿本仓库自己的源码当语料，跑「建索引 → 向量 + BM25 检索 → RRF 融合 → 组装上下文」，嵌入用确定性假向量，不连 Ollama、不调 LLM。
 
-`tests/test_chunker.py` 锁分块边界（Python 函数/类不被劈开、装饰器跟着它修饰的函数、首个 `def` 前的模块级代码不丢、块行号与源码一致）；`tests/test_context_builder.py` 锁上下文预算（超预算时按命中行截断并留「已截断」标注、预算不够时后续文件不收录、总 token 不越界）。这两块过去没有直接覆盖。
+`tests/test_chunker.py` 锁分块边界（Python 函数/类不被劈开、装饰器跟着它修饰的函数、首个 `def` 前的模块级代码不丢、块行号与源码一致），WXML 那条是单独加的：旧实现用消费换行符的正则取位置，40 个 chunk 里 39 个行号偏一行，而只覆盖 Python 的用例发现不了。`tests/test_context_builder.py` 锁上下文预算（超预算时按命中行截断并留「已截断」标注、预算不够时后续文件不收录、总 token 不越界、中文按 1 字 1 token 估算、文件顺序跟随 `rrf_score`）。
 
-`tests/test_app_import.py` 是路由装配层的冒烟测试：`from backend.app import app` 必须成立、`app.routes` 非空、health/query/index/audio 四条路由都挂上、audio 路由按 multipart 解析上传、OpenAPI schema 能生成。其余测试都是直接调模块函数，从不 import `backend.app`，所以「路由装配阶段就崩」的问题（例如缺 `python-multipart`）能带着 18 条全绿溜过去——这条用例专门堵这个洞。
+`tests/test_reranker.py` 锁「精排顺序真的影响上下文」：mock 掉 DeepSeek 的 HTTP 会话，断言重排结果写回分数后 `ContextBuilder` 输出的首个文件跟着变（修复前两处排序脱节，重排只白花一次 API 调用）。`tests/test_heartbeat.py` 锁 SSE 心跳在模型沉默时真的发出；`tests/test_scanner.py` 锁排除规则不误伤 `contest_utils.py` 这类文件名。
 
-当前 **19 passed**（12 条离线单测 + 6 条语义配置用例 + 1 条应用装配冒烟）。
+`tests/test_app_import.py` 是路由装配层的冒烟测试：`from backend.app import app` 必须成立、`app.routes` 非空、health/query/index/audio 四条路由都挂上、audio 路由按 multipart 解析上传、OpenAPI schema 能生成。其余测试都是直接调模块函数，从不 import `backend.app`，所以「路由装配阶段就崩」的问题（例如缺 `python-multipart`）能带着全绿溜过去——这条用例专门堵这个洞。
+
+当前 **40 passed**（29 条离线单测 + 6 条语义配置用例 + 4 条端到端/语料配置 + 1 条应用装配冒烟）。
 
 ## 实现要点
 
@@ -123,6 +138,14 @@ pytest -q
 - **语料与文案外置**：`RAG_SOURCE_DIRS` / `build_index.py --source-dirs` 覆盖语料目录，默认值不变；文件语义标签与项目背景移到 `backend/semantic_tags.json`（可用 `RAG_SEMANTIC_TAGS` 指向另一份）。检索侧的 `TERM_MAP`、boost 倍数、`expand_query()` 分支仍是硬编码，换项目要改 Python。
 - **前端不再直接吃 marked 的输出**：`renderMarkdown()` 先过 DOMPurify 再进 `innerHTML`；`showError()` 改用 `textContent`。
 - **多轮对话不再重复注入当前问题**：`_getChatHistory()` 排除末尾「当前问题 + 空助手占位」两条，之前 `slice(-11, -1)` 只排掉占位，同一句问题会同时出现在 `chat_history` 和 `question` 里。
+- **精排顺序写回分数**：`rerank()` 只返回新顺序时，`ContextBuilder` 仍按 `rrf_score` 排文件，那次重排对最终上下文没有任何影响（只把 21 条砍到 20 条）。现在按新顺序重写 `rrf_score`，`tests/test_reranker.py` 锁住「新顺序决定上下文文件顺序」。
+- **WXML 行号不再偏一行**：`_chunk_wxml` 的正则曾把换行符算进匹配起点，`start_line` 整体晚一行（40 块里 39 块错位）。改成行首零宽匹配，并补了 WXML 的行号回归（只覆盖 Python 的用例发现不了）。
+- **token 预算与估算**：输入预算从「context + 500」改为对 system prompt + 对话历史 + context 求和；`estimate_tokens` 不再把中文折半（38 汉字算 38 tokens，旧算法是 18），截断字符数也按 2 chars/token 保守取。
+- **`rag` 子串匹配**：`'rag' in question` 会命中 `average latency?`、`drag handler`、`fragment cache` 并给 rag 源双倍权重，改成独立单词匹配（中文紧邻仍然算）。
+- **SSE 心跳真的会发**：心跳检查原先写在 `for token in ...` 循环体内，模型沉默时永远走不到；现在后台线程读流、生成器带超时等待，沉默 15 秒就发一次注释。
+- **BM25 进程内缓存**：查询路径不再每次 `BM25Store().load()` 全语料重建 `BM25Okapi`，按 pkl 的 (mtime, size) 复用，重建索引后自动失效。
+- **排除规则按路径段匹配**：`test_`、`images` 不再做子串匹配，`contest_utils.py`、`metadata.py` 这类文件名不会被误伤。
+- **默认不热重载**：`run.py` 的 `reload` 改为 `RAG_DEV=1` 才开；`@app.on_event("startup")` 换成 lifespan；`allow_origins=["*"]` + `allow_credentials=True` 这个浏览器不认的组合改成 `allow_credentials=False`；`convert_to_wav()` 与 `_postProcessCodeBlocks()` 两个死函数删掉。
 
 ## 使用注意
 
@@ -150,7 +173,7 @@ python build_index.py full
 | 关键词 | rank-bm25（自定义中英文混排分词） |
 | 嵌入 | jina-embeddings-v2-base-code（Ollama，768 维） |
 | 生成 | DeepSeek Chat（64K 窗口，动态输出预算） |
-| 精排 | 候选 > 20 条时调 DeepSeek 重排并截到 20 条（16–20 条不调模型，直接按 RRF 顺序取前 20；调模型失败则降级为原序） |
+| 精排 | 候选 > 20 条时调 DeepSeek 重排，重排结果写回 `rrf_score` 并截到 20 条——新顺序会真正决定上下文里的文件顺序（16–20 条不调模型，直接按 RRF 顺序取前 20；调模型失败则降级为原序） |
 | 前端 | 原生 HTML/CSS/JS + marked@4.3.0 + DOMPurify@3.0.8 + highlight.js 11.9.0（版本锁定，全部走外网 CDN，见「使用注意」） |
 | 语音 | 可选 Qwen3-ASR（子进程调用，未安装则不可用） |
 

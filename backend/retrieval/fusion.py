@@ -1,5 +1,7 @@
 """RRF fusion + source-aware boosting + dedup + same-file limit + full-file context fill."""
 
+import re
+
 from backend.config import settings
 
 
@@ -7,6 +9,12 @@ from backend.config import settings
 
 # Default: no boost
 DEFAULT_BOOST = 1.0
+
+# `'rag' in question` matched "average latency?", "drag handler" and
+# "fragment cache" and doubled every rag-source chunk. The lookarounds keep
+# "rag" as a standalone word while still allowing Chinese neighbours
+# ("这个项目的rag在哪"), which `\b` does not (Chinese chars are word chars).
+_RAG_WORD = re.compile(r'(?<![a-z0-9_])rag(?![a-z0-9_])')
 
 # When query mentions specific source, boost chunks from that source
 SOURCE_BOOST = {
@@ -41,7 +49,7 @@ def detect_query_context(question: str) -> dict:
     }
 
     # ── Source detection ──
-    if any(w in q_lower for w in ('rag', '问答系统', '检索系统')):
+    if _RAG_WORD.search(q_lower) or any(w in q_lower for w in ('问答系统', '检索系统')):
         result['source_boost']['rag'] = SOURCE_BOOST['rag']
     if any(w in q_lower for w in ('main分支', 'main 分支', '主分支')):
         result['source_boost']['main'] = SOURCE_BOOST['main']

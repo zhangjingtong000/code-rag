@@ -83,7 +83,15 @@ def rerank(query: str, candidates: list[dict], top_n: int = 15) -> list[dict]:
             if i not in seen:
                 reranked.append(c)
 
-        return reranked[:top_n]
+        reranked = reranked[:top_n]
+
+        # ContextBuilder 只在文件组内取 max(rrf_score) 再排序，它看不到这里的
+        # 新顺序。不把这层顺序写回分数，重排就只起到「截到 top_n」的作用，对
+        # 最终上下文没有任何影响。按新顺序重写成严格递减的分数（与 RRF 同量级）。
+        for rank, candidate in enumerate(reranked):
+            candidate['rrf_score'] = 1.0 / (rank + 1)
+
+        return reranked
 
     except Exception as e:
         print(f"[Reranker] failed: {e}, returning original order", flush=True)

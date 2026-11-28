@@ -1,0 +1,7 @@
+# -*- coding: utf-8 -*-
+# 开发 / 测试依赖。README 里的 `pytest -q` 需要这一份；只跑服务用
+# requirements.txt 就够。首行编码声明别删（原因见 requirements.txt）。
+#
+#   pip install -r requirements-dev.txt
+-r requirements.txt
+pytest>=8.0

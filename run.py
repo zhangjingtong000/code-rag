@@ -20,6 +20,9 @@ if __name__ == '__main__':
         "backend.app:app",
         host=settings.host,
         port=settings.port,
-        reload=True,
+        # Code reload is a dev convenience: it restarts the process on every
+        # file change, which drops in-process state and is wrong for a demo
+        # someone just launched. Opt in with RAG_DEV=1.
+        reload=os.environ.get("RAG_DEV") == "1",
         timeout_keep_alive=300,  # Keep SSE connections alive for 5 minutes
     )

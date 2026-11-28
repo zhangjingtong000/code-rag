@@ -10,11 +10,8 @@ Configure via Settings: asr_backend, asr_model_dir, asr_binary_path.
 
 import os
 import sys
-import json
 import subprocess
-import tempfile
 import shutil
-from pathlib import Path
 from backend.config import settings
 
 
@@ -128,19 +125,3 @@ def _transcribe_antirez(audio_path: str) -> str:
     except subprocess.TimeoutExpired:
         print("[ASR] Transcription timed out", flush=True)
         return ""
-
-
-def convert_to_wav(input_bytes: bytes, output_path: str):
-    """Convert audio bytes (webm/wav/mp3) to 16kHz mono WAV using pydub."""
-    try:
-        from pydub import AudioSegment
-        import io
-
-        audio = AudioSegment.from_file(io.BytesIO(input_bytes))
-        audio = audio.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-        audio.export(output_path, format="wav")
-    except Exception as e:
-        # If pydub fails, try writing raw bytes (assumes browser WAV)
-        print(f"[ASR] pydub conversion failed ({e}), writing raw bytes", flush=True)
-        with open(output_path, "wb") as f:
-            f.write(input_bytes)

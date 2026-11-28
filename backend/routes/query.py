@@ -2,6 +2,8 @@
 
 import json
 import os
+import queue
+import threading
 import uuid
 import time
 import sys
@@ -11,6 +13,9 @@ from backend.schemas.models import QueryRequest, QueryResponse
 from backend.config import settings
 
 router = APIRouter()
+
+# How long the LLM may stay silent before an SSE comment is sent.
+HEARTBEAT_SECONDS = 15.0
 
 # In-memory query store (for demo / single user)
 _query_store: dict = {}
@@ -30,6 +35,44 @@ def _log(msg: str):
 def _sse_event(event: str, data: dict) -> str:
     """Format an SSE event."""
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _iter_tokens_with_heartbeat(tokens, heartbeat_seconds: float = HEARTBEAT_SECONDS):
+    """Relay LLM tokens while yielding ('heartbeat', None) during long silences.
+
+    A sync generator cannot yield while blocked inside ``iter_lines()``, so the
+    old in-loop check only ever ran *after* a token arrived — precisely the case
+    where a heartbeat is pointless. The silent case (first token, or a long
+    pause between bursts) never produced one. The reader therefore runs in a
+    worker thread and the generator waits on a queue with a timeout.
+
+    Yields ('token', text) or ('heartbeat', None); re-raises reader exceptions
+    so the caller's existing error handling still applies.
+    """
+    events: "queue.Queue[tuple[str, object]]" = queue.Queue()
+
+    def _pump():
+        try:
+            for token in tokens:
+                events.put(('token', token))
+        except BaseException as exc:  # forwarded to the consuming generator
+            events.put(('error', exc))
+        finally:
+            events.put(('end', None))
+
+    threading.Thread(target=_pump, daemon=True).start()
+
+    while True:
+        try:
+            kind, payload = events.get(timeout=heartbeat_seconds)
+        except queue.Empty:
+            yield ('heartbeat', None)
+            continue
+        if kind == 'end':
+            return
+        if kind == 'error':
+            raise payload
+        yield (kind, payload)
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -83,14 +126,13 @@ def stream_query(query_id: str):
     qdata["status"] = "streaming"
 
     def generate():
-        last_time = time.time()
         try:
             from backend.retrieval.query_expansion import expand_query
             from backend.indexing.embedding import EmbeddingService
             from backend.retrieval.vector_store import VectorStore
-            from backend.retrieval.bm25_store import BM25Store
             from backend.retrieval.fusion import hybrid_search
             from backend.retrieval.reranker import rerank
+            from backend.retrieval.bm25_store import load_cached
             from backend.generation.context_builder import ContextBuilder
             from backend.generation.context_builder import estimate_tokens
             from backend.generation.prompt_manager import PromptManager
@@ -112,9 +154,8 @@ def stream_query(query_id: str):
             vs = VectorStore()
             vector_results = vs.search(query_embedding, k=settings.vector_k)
 
-            # 4. BM25 search
-            bm25 = BM25Store()
-            bm25.load(settings.bm25_path)
+            # 4. BM25 search — cached per process, rebuilt only when the pkl changes
+            bm25 = load_cached(settings.bm25_path)
             bm25_results = bm25.search(expanded_query, k=settings.bm25_k)
 
             # 5. Hybrid fusion
@@ -143,7 +184,7 @@ def stream_query(query_id: str):
             ctx_builder = ContextBuilder()
             context = ctx_builder.build(fusion_results)
 
-            # 7. Build messages
+            # 8. Build messages
             prompt_mgr = PromptManager()
             messages = prompt_mgr.build_messages(
                 question=question,
@@ -151,23 +192,24 @@ def stream_query(query_id: str):
                 chat_history=chat_history,
             )
 
-            # 8. LLM streaming
-            input_size = estimate_tokens(context) + 500
+            # 9. LLM streaming. The input budget must cover everything that is
+            # actually sent — System prompt, chat history and the context — not
+            # just the context string. SYSTEM_PROMPT alone is ~183 tokens and
+            # 4 turns of history can be several thousand.
+            input_size = sum(estimate_tokens(m.get('content', '')) for m in messages)
             dyn_max = max(4096, min(16384, 64000 - input_size))
-            _log(f"context ~{input_size} tokens, output budget ~{dyn_max} tokens")
+            _log(f"input ~{input_size} tokens, output budget ~{dyn_max} tokens")
 
             llm = LLMService()
             full_text = ""
 
-            for token in llm.generate_stream(messages, max_tokens=dyn_max):
-                full_text += token
-                yield _sse_event("token", {"text": token})
-
-                # Heartbeat check: if no token for 15s, send heartbeat comment
-                now = time.time()
-                if now - last_time > 15:
+            for kind, payload in _iter_tokens_with_heartbeat(
+                    llm.generate_stream(messages, max_tokens=dyn_max)):
+                if kind == 'heartbeat':
                     yield ": heartbeat\n\n"
-                    last_time = now
+                    continue
+                full_text += payload
+                yield _sse_event("token", {"text": payload})
 
             _log(f"Done. Total output: {len(full_text)} chars, {len(full_text.split())} words")
             yield _sse_event("done", {"full_text": full_text})

@@ -55,6 +55,63 @@ def _file_info(content=SOURCE, rel_path='demo/sample.py'):
     )
 
 
+def _wxml_source(blocks=40):
+    """超长 WXML：40 个 <view class=...> 块，必然触发按 view 切分。"""
+    lines = ['<template name="page">']
+    for i in range(blocks):
+        lines.append(f'<view class="card card-{i}">')
+        lines.append(f'  <text class="title">标题 {i}</text>')
+        lines.append(f'  <text class="body">第 {i} 块内容，用来验证声明的行号能切出同样的文本。</text>')
+        lines.append('</view>')
+    lines.append('</template>')
+    return '\n'.join(lines) + '\n'
+
+
+class WxmlLineNumberTest(unittest.TestCase):
+    """WXML 切块的行号必须指向内容本身，不能整体偏移一行。
+
+    旧实现用 `(?:^|\\n)` 取匹配位置，match.start() 落在换行符上，导致
+    start_line 少算一行；40 个块里 39 个与内容错位。Python 用例覆盖不到这条
+    路径（所以之前全绿也发现不了），这里单独锁住。
+    """
+
+    def setUp(self):
+        self.source = _wxml_source()
+        self.lines = self.source.split('\n')
+        self.chunker = CodeChunker(Settings())
+        self.chunks = self.chunker.chunk_file(FileInfo(
+            source='rag',
+            path=os.path.join(ROOT, 'demo', 'page.wxml'),
+            relative_path='demo/page.wxml',
+            language='wxml',
+            content=self.source,
+            size=len(self.source),
+            md5='1' * 32,
+        ))
+
+    def test_page_is_split_into_many_chunks(self):
+        self.assertGreater(len(self.chunks), 30, '超长 WXML 没有被切分')
+
+    def test_declared_line_range_matches_chunk_content(self):
+        for chunk in self.chunks:
+            sliced = '\n'.join(self.lines[chunk.start_line - 1:chunk.end_line])
+            self.assertEqual(
+                sliced.strip(), chunk.content.strip(),
+                f'行号与内容错位: {chunk.start_line}-{chunk.end_line}')
+
+    def test_start_line_points_at_the_first_content_line(self):
+        for chunk in self.chunks:
+            first_line = chunk.content.split('\n')[0].strip()
+            self.assertEqual(
+                self.lines[chunk.start_line - 1].strip(), first_line,
+                f'start_line={chunk.start_line} 不是块首行')
+
+    def test_line_ranges_are_inside_the_file(self):
+        for chunk in self.chunks:
+            self.assertGreaterEqual(chunk.start_line, 1)
+            self.assertLessEqual(chunk.end_line, len(self.lines))
+
+
 class PythonBoundaryTest(unittest.TestCase):
     """Python 按顶层 def/class 切块，块边界与源码行号自洽。"""
 

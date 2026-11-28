@@ -21,7 +21,8 @@ class CodeScanner:
     def __init__(self, config):
         self.source_dirs = config.source_dirs
         self.include_exts = config.include_extensions
-        self.exclude_patterns = config.exclude_patterns
+        # Normalised once; matching is per path segment, never a substring
+        self.exclude_patterns = [p.lower() for p in config.exclude_patterns]
         self.exclude_exts = config.exclude_extensions
 
     def _language(self, path: str) -> str:
@@ -42,6 +43,23 @@ class CodeScanner:
             return 'css'
         return 'unknown'
 
+    def _excluded(self, name: str, is_dir: bool = False) -> bool:
+        """Match a single path segment against the exclude patterns.
+
+        The old rule was `pattern in whole_path`, so `'test_'` rejected
+        `contest_utils.py` and `'images'` rejected any path containing that
+        word. A pattern now matches a whole directory/file name; a trailing
+        underscore additionally means "filename prefix", which keeps `test_`
+        catching `test_chunker.py` without touching `contest_utils.py`.
+        """
+        name = name.lower()
+        for pattern in self.exclude_patterns:
+            if name == pattern:
+                return True
+            if not is_dir and pattern.endswith('_') and name.startswith(pattern):
+                return True
+        return False
+
     def _should_include(self, filepath: str) -> bool:
         ext = os.path.splitext(filepath)[1].lower()
         if ext not in self.include_exts:
@@ -49,14 +67,12 @@ class CodeScanner:
         if ext in self.exclude_exts:
             return False
 
-        basename = os.path.basename(filepath)
-        dir_part = filepath.replace('\\', '/')
-
-        for pattern in self.exclude_patterns:
-            if pattern in dir_part or basename == pattern:
-                return False
-
-        return True
+        parts = [p for p in filepath.replace('\\', '/').split('/') if p]
+        if not parts:
+            return False
+        if any(self._excluded(part, is_dir=True) for part in parts[:-1]):
+            return False
+        return not self._excluded(parts[-1])
 
     def scan(self) -> list[FileInfo]:
         files = []
@@ -71,7 +87,8 @@ class CodeScanner:
 
             for root, dirs, _filenames in os.walk(src_dir):
                 # Filter directories in-place
-                dirs[:] = [d for d in dirs if d not in self.exclude_patterns and not d.startswith('.')]
+                dirs[:] = [d for d in dirs
+                           if not d.startswith('.') and not self._excluded(d, is_dir=True)]
 
                 for filename in _filenames:
                     full_path = os.path.join(root, filename)

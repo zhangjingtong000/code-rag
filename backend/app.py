@@ -1,5 +1,6 @@
 import os
 import sys
+from contextlib import asynccontextmanager
 
 # Ensure project root is on path for relative imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,16 +25,30 @@ class NoCacheStaticFiles(StaticFiles):
         return response
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Startup / shutdown logging — `@app.on_event` is deprecated."""
+    print(f"[RAG System] Starting on {settings.host}:{settings.port}")
+    print(f"[RAG System] LLM: {settings.deepseek_model}")
+    print(f"[RAG System] Embedding: {settings.ollama_embed_model} @ {settings.ollama_base_url}")
+    print(f"[RAG System] Frontend: http://{settings.host}:{settings.port}/frontend/index.html")
+    yield
+
+
 app = FastAPI(
     title="RAG Code Q&A System",
     description="代码知识库 RAG 问答系统",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # `allow_origins=["*"]` with credentials is an invalid pair — browsers
+    # reject a wildcard ACAO for credentialed requests, so the combination
+    # never actually enabled cookies. This app carries no credentials.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -46,11 +61,3 @@ app.include_router(audio_router, prefix="/api/rag")
 frontend_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
 if os.path.exists(frontend_path):
     app.mount("/frontend", NoCacheStaticFiles(directory=frontend_path, html=True), name="frontend")
-
-
-@app.on_event("startup")
-async def startup_event():
-    print(f"[RAG System] Starting on {settings.host}:{settings.port}")
-    print(f"[RAG System] LLM: {settings.deepseek_model}")
-    print(f"[RAG System] Embedding: {settings.ollama_embed_model} @ {settings.ollama_base_url}")
-    print(f"[RAG System] Frontend: http://{settings.host}:{settings.port}/frontend/index.html")

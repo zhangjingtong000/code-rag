@@ -9,12 +9,19 @@ from backend.config import settings
 from backend.semantic_tags import load_config as _load_semantic_config
 
 
-# Approximate token counter (char-based heuristic: ~4 chars per token for Chinese, ~3 for English)
+# Approximate token counter. Deliberately conservative: over-estimating only
+# costs a little context, under-estimating blows the model window.
+# DeepSeek counts a Chinese character as ~1 token and ~4 ASCII chars as one
+# token. The old formula (`chinese // 2 + other // 3`) halved Chinese and
+# floored each class separately, so 38 Chinese characters measured 18 tokens —
+# the budget was silently exceeded on every Chinese-heavy context.
 def estimate_tokens(text: str) -> int:
-    """Rough token estimate. ~3-4 chars per token on average for mixed Chinese/English."""
+    """Rough token estimate for mixed Chinese/English text."""
+    if not text:
+        return 0
     chinese_chars = sum(1 for c in text if '一' <= c <= '鿿')
     other_chars = len(text) - chinese_chars
-    return chinese_chars // 2 + other_chars // 3  # Chinese ~2 chars/token, other ~3-4
+    return chinese_chars + (other_chars + 3) // 4
 
 
 class ContextBuilder:
@@ -106,7 +113,9 @@ class ContextBuilder:
                         truncated = self._truncate_to_relevant(full_content, hit_ranges)
                         # Further truncate if still too big
                         if estimate_tokens(truncated) > remaining:
-                            truncated = truncated[:remaining * 3]  # approximate char cutoff
+                            # 2 chars/token is the safe lower bound (Chinese is 1
+                            # char/token); the old *3 could leave the file over budget.
+                            truncated = truncated[:remaining * 2]
                             truncated += '\n// ... [已截断，完整文件见源码]\n'
                         sections.append(
                             self._format_file_section(source, rel_path, truncated)

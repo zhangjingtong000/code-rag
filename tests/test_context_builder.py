@@ -51,6 +51,38 @@ def _hit(rel_path: str, start: int, end: int, rrf: float) -> dict:
     }
 
 
+class EstimateTokensTest(unittest.TestCase):
+    """token 估算必须接近真实值：低估会让上下文悄悄超出模型窗口。"""
+
+    def test_chinese_is_about_one_token_per_char(self):
+        # 旧公式 chinese // 2 把 38 个汉字算成 18 tokens
+        self.assertEqual(estimate_tokens('代码' * 19), 38)
+
+    def test_empty_text_is_zero(self):
+        self.assertEqual(estimate_tokens(''), 0)
+
+    def test_ascii_is_about_four_chars_per_token(self):
+        self.assertEqual(estimate_tokens('abcdefgh'), 2)
+
+
+class FileOrderTest(unittest.TestCase):
+    """文件顺序只由 rrf_score 决定 —— 精排不写回这个字段就不生效。"""
+
+    def _build(self, order):
+        results = [_hit(name, 1, 3, score) for name, score in order]
+        with mock.patch.object(
+                context_builder_mod.ContextBuilder, '_read_source_file',
+                lambda self, source, rel_path, root: f'# {rel_path}\nVALUE = 1\n'):
+            return ContextBuilder().build(results)
+
+    def test_file_order_follows_the_scores(self):
+        first = self._build([('a.py', 0.9), ('b.py', 0.1)])
+        self.assertLess(first.index('文件: a.py'), first.index('文件: b.py'))
+
+        flipped = self._build([('b.py', 0.9), ('a.py', 0.1)])
+        self.assertLess(flipped.index('文件: b.py'), flipped.index('文件: a.py'))
+
+
 class ContextBudgetTest(unittest.TestCase):
     """超预算时按命中行截断并标注；预算真的不够时直接不收录后续文件。"""
 

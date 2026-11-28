@@ -356,9 +356,15 @@ class CodeChunker:
                 chunk_type='template', file_md5=fi.md5,
             )]
 
-        # Split at <template> or major <view class="xxx"> boundaries
+        # Split at <template> or major <view class="xxx"> boundaries.
+        # The match must be zero-width at the *line start*. The previous
+        # `(?:^|\n)` consumed the newline, so start_pos pointed at the newline
+        # and every chunk's start_line was one line late. `(?m)^` keeps the
+        # offset on the first character of the line, which is what the
+        # `<template>`/`<view` detection needs.
         chunks = []
-        splits = list(re.finditer(r'(?:^|\n)(?=\s*(?:<template|<scroll-view|<view\s+class=))', content))
+        splits = list(re.finditer(
+            r'(?m)^(?=\s*(?:<template|<scroll-view|<view\s+class=))', content))
         split_positions = [m.start() for m in splits]
 
         if len(split_positions) < 2:
@@ -375,7 +381,15 @@ class CodeChunker:
             if not chunk_text:
                 continue
             start_line = content[:start_pos].count('\n') + 1
-            end_line = content[:end_pos].count('\n') + 1
+            # end_pos is the first char of the *next* chunk, so the newlines
+            # before it end this chunk's last line: count them, and only add
+            # one when the file does not end with a newline. (The old `+ 1`
+            # only worked while the matched newline was consumed by the regex;
+            # with a line-start match it would bleed one line into the next.)
+            end_line = content[:end_pos].count('\n')
+            if end_pos > 0 and content[end_pos - 1] != '\n':
+                end_line += 1
+            end_line = max(end_line, start_line)
             chunks.append(CodeChunk(
                 source=fi.source, file_path=fi.relative_path, language=fi.language,
                 content=chunk_text, start_line=start_line, end_line=end_line,

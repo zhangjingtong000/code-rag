@@ -8,13 +8,14 @@ No network, no Ollama, no LLM and no real index are involved.
 import os
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.indexing.chunker import CodeChunk, chunk_key
-from backend.retrieval.bm25_store import BM25Store
-from backend.retrieval.fusion import dedup_and_limit, rrf_fusion
+from backend.retrieval.bm25_store import BM25Store, load_cached
+from backend.retrieval.fusion import dedup_and_limit, detect_query_context, rrf_fusion
 from backend.retrieval.vector_store import VectorStore
 
 
@@ -97,8 +98,44 @@ class BM25MetadataTest(unittest.TestCase):
         self.assertEqual(hit['metadata']['file_path'], 'app/recognize.py')
 
 
-class DedupLimitTest(unittest.TestCase):
+class RagWordBoundaryTest(unittest.TestCase):
+    """'rag' 必须是独立单词，不能靠子串命中。"""
 
+    def _rag_boosted(self, question: str) -> bool:
+        return 'rag' in detect_query_context(question)['source_boost']
+
+    def test_english_words_containing_rag_do_not_boost(self):
+        for question in ('average latency?', 'drag handler', 'fragment cache',
+                         'storage size', 'paragraph 3'):
+            self.assertFalse(self._rag_boosted(question), question)
+
+    def test_standalone_rag_still_boosts(self):
+        for question in ('rag 的融合怎么做', '这个项目的rag在哪', 'RAG pipeline 是什么'):
+            self.assertTrue(self._rag_boosted(question), question)
+
+
+class BM25CacheTest(unittest.TestCase):
+    """BM25 索引按 (mtime, size) 在进程内复用，重建后自动失效。"""
+
+    def _write_store(self, path):
+        store = BM25Store()
+        store.build([make_chunk('rag', 'a.py', 1, 5, 'def alpha():\n    pass')])
+        store.save(path)
+
+    def test_reuses_the_loaded_store_until_the_file_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'bm25.pkl')
+            self._write_store(path)
+
+            first = load_cached(path)
+            self.assertIs(load_cached(path), first, '同一个索引文件被重复加载')
+
+            # build_index 覆盖同一个 pkl：mtime 变了就必须丢掉缓存
+            os.utime(path, (time.time() + 30, time.time() + 30))
+            self.assertIsNot(load_cached(path), first)
+
+
+class DedupLimitTest(unittest.TestCase):
     def _result(self, path, start, score):
         return {
             'chunk_id': f'main:{path}:{start}:{start + 5}',

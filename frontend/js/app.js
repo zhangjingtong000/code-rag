@@ -225,7 +225,6 @@ var ChatApp = class ChatApp {
       bubble.innerHTML = '';
     } else {
       bubble.innerHTML = window.renderMarkdown(content);
-      this._postProcessCodeBlocks(bubble);
     }
 
     div.appendChild(bubble);
@@ -248,7 +247,6 @@ var ChatApp = class ChatApp {
     this.currentAssistantMsg.content += text;
     bubble.innerHTML = window.renderMarkdown(this.currentAssistantMsg.content);
     bubble.classList.add('streaming-cursor');
-    this._postProcessCodeBlocks(bubble);
     this._scrollToBottom();
   }
 
@@ -259,7 +257,6 @@ var ChatApp = class ChatApp {
     var bubble = this.currentAssistantMsg.el.querySelector('.msg-bubble');
     bubble.classList.remove('streaming-cursor');
     bubble.innerHTML = window.renderMarkdown(fullText);
-    this._postProcessCodeBlocks(bubble);
   }
 
   showError(msg) {
@@ -277,10 +274,6 @@ var ChatApp = class ChatApp {
   }
 
   // ── Helpers ────────────────────────────────────────
-
-  _postProcessCodeBlocks(bubble) {
-    // no-op — fold/copy handlers are inline onclick
-  }
 
   _scrollToBottom() {
     var el = this.els.messages;
