@@ -4,6 +4,10 @@ __pycache__/
 venv/
 .venv/
 
+# 工具缓存
+.pytest_cache/
+.ruff_cache/
+
 # 语料、索引与模型（体积大，且包含被索引项目的私有源码）
 data/
 index/

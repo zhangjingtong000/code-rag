@@ -1,0 +1,14 @@
+# 工具配置（不是打包配置）：本项目以脚本方式运行，没有可安装的包。
+#   pytest -q
+#   ruff check .
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [".git", "data", "frontend", "docs", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

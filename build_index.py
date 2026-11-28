@@ -13,7 +13,7 @@ import sys
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, '.')
 
-from backend.config import parse_source_dirs, settings  # noqa: E402
+from backend.config import settings  # noqa: E402
 from backend.indexing.indexer import Indexer  # noqa: E402
 
 

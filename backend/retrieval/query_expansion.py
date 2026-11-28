@@ -1,6 +1,7 @@
 """Query expansion — Chinese term mapping + optional LLM expansion."""
 
 from backend.config import settings
+from backend.retrieval.fusion import _RAG_WORD
 
 # Domain-specific Chinese → English term mapping
 # Organized by subsystem for maintainability
@@ -201,14 +202,16 @@ def expand_query(question: str) -> str:
     Returns the expanded query string for both vector and BM25 search.
     Automatically disambiguates between RAG system and mini-program context.
     """
+    q_lower = question.lower()
     expansion_terms = []
 
     # ── Context Detection ──
-    is_rag_context = bool(
-        'rag' in question.lower() or
-        'RAG' in question or
-        '问答系统' in question
-    )
+    # 与 fusion.detect_query_context() 共用 fusion._RAG_WORD 这条词边界规则。
+    # 这里原来写的是 `'rag' in question.lower()`，于是 average / drag /
+    # fragment / paragraph 都会命中，把下面那串写死的本仓库文件名塞进查询
+    # （"average latency of the search" 会扩出 index.html style.css app.js …）。
+    # 中文紧邻仍然算独立单词："这个项目的rag在哪" 里的 rag 前后是汉字。
+    is_rag_context = bool(_RAG_WORD.search(q_lower) or '问答系统' in q_lower)
 
     # ── L1: Static mapping ──
     for zh_term, en_terms in TERM_MAP.items():
@@ -244,10 +247,20 @@ def expand_query(question: str) -> str:
     return question
 
 
+# L2 结果按问题缓存：同一句话只调一次 LLM（DESIGN 5.2 的「首次调用缓存」）。
+# 进程内字典，查询表本来也是进程内存态；加个上限防止长会话无限增长。
+_LLM_CACHE: dict[str, str] = {}
+_LLM_CACHE_MAX = 512
+
+
 def expand_query_llm(question: str) -> str:
     """L2: Use LLM to generate English keywords (cached, toggleable)."""
     if not settings.llm_expansion_enabled:
         return expand_query(question)
+
+    cached = _LLM_CACHE.get(question)
+    if cached is not None:
+        return cached
 
     # Try static first as base
     base = expand_query(question)
@@ -262,7 +275,11 @@ def expand_query_llm(question: str) -> str:
 关键词："""
         keywords = llm.generate([{"role": "user", "content": prompt}])
         if keywords and len(keywords) < 200:
-            return f"{base} {keywords}"
+            result = f"{base} {keywords}"
+            if len(_LLM_CACHE) >= _LLM_CACHE_MAX:
+                _LLM_CACHE.clear()
+            _LLM_CACHE[question] = result
+            return result
     except Exception:
         pass
 

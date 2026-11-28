@@ -1,7 +1,7 @@
 """Structure-aware code chunker — splits files at function/class/component boundaries."""
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from backend.indexing.scanner import FileInfo
 
 

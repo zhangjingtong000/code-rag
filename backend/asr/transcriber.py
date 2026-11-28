@@ -29,7 +29,7 @@ def transcribe(audio_path: str) -> str:
     elif backend == "antirez-c":
         return _transcribe_antirez(audio_path)
     else:
-        raise RuntimeError(f"No ASR backend available. Tried: qwen3-asr-cli, qwen-asr-py, antirez-c")
+        raise RuntimeError("No ASR backend available. Tried: qwen3-asr-cli, qwen-asr-py, antirez-c")
 
 
 def _detect_backend() -> str:

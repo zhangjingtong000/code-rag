@@ -1,6 +1,5 @@
 """Cross-encoder re-ranker using DeepSeek — universal quality boost for all query types."""
 
-import json
 import requests
 from backend.config import settings
 

@@ -105,17 +105,14 @@ class Settings:
     asr_device: str = 'cuda:0'
     asr_timeout: int = 60  # seconds
 
-    # Streaming
-    typewriter_frame_ms: int = 16
-    typewriter_chars_min: int = 8
-    typewriter_chars_max: int = 15
-
     # Query expansion
     llm_expansion_enabled: bool = False  # toggle L2 LLM expansion
 
-    # Server
-    host: str = '0.0.0.0'
-    port: int = 8001
+    # Server. Bind to loopback by default: the app has no authentication, so
+    # `0.0.0.0` exposes every indexed source file (and the DeepSeek quota) to
+    # the whole network. Set RAG_HOST=0.0.0.0 explicitly to serve others.
+    host: str = field(default_factory=lambda: get_env('RAG_HOST', '127.0.0.1'))
+    port: int = field(default_factory=lambda: int(get_env('RAG_PORT', '8001')))
 
     # Paths (absolute, resolved against project root)
     @property
@@ -148,11 +145,6 @@ class Settings:
     def filehash_path(self) -> str:
         import os as _os
         return _os.path.join(self.data_dir, 'file_hashes.json')
-
-    @property
-    def summaries_path(self) -> str:
-        import os as _os
-        return _os.path.join(self.data_dir, 'file_summaries.json')
 
     @property
     def asr_temp_dir(self) -> str:

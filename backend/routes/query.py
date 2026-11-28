@@ -22,11 +22,19 @@ _query_store: dict = {}
 
 
 def _log(msg: str):
-    """Write log to stderr (unbuffered) + to a debug file."""
+    """Write log to stderr (unbuffered) + to a debug file.
+
+    The file path follows ``settings.data_dir`` instead of a hard-coded
+    ``data/rag_debug.log``: the old relative path resolved against the process
+    CWD, so starting the app from anywhere else silently lost the log (or wrote
+    into an unrelated ``data/`` directory).
+    """
     sys.stderr.write(f"[RAG] {msg}\n")
     sys.stderr.flush()
     try:
-        with open("data/rag_debug.log", "a", encoding="utf-8") as f:
+        path = os.path.join(settings.data_dir, 'rag_debug.log')
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
             f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
     except Exception:
         pass
@@ -127,7 +135,7 @@ def stream_query(query_id: str):
 
     def generate():
         try:
-            from backend.retrieval.query_expansion import expand_query
+            from backend.retrieval.query_expansion import expand_query_llm
             from backend.indexing.embedding import EmbeddingService
             from backend.retrieval.vector_store import VectorStore
             from backend.retrieval.fusion import hybrid_search
@@ -143,8 +151,9 @@ def stream_query(query_id: str):
 
             _log(f"Query: {question[:80]}...")
 
-            # 1. Expand query
-            expanded_query = expand_query(question)
+            # 1. Expand query — L2 LLM expansion is opt-in via
+            #    `llm_expansion_enabled`; disabled it is exactly expand_query().
+            expanded_query = expand_query_llm(question)
 
             # 2. Embed query
             embed_svc = EmbeddingService()

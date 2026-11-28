@@ -2,6 +2,10 @@
    ChatApp — core chat logic + sidebar tracking
    ═══════════════════════════════════════════════ */
 
+// 流式渲染节流间隔（ms）与长文本快路径阈值（字符数）
+var RENDER_INTERVAL_MS = 100;
+var LARGE_TEXT_CHARS = 4000;
+
 var ChatApp = class ChatApp {
   constructor() {
     this.messages = [];
@@ -16,6 +20,7 @@ var ChatApp = class ChatApp {
     this.recordStartTime = 0;
     this.recordTimer = null;
     this.maxRecordMs = 30000;  // 30s max
+    this.renderTimer = null;
 
     this.els = {
       messages: document.getElementById('messages'),
@@ -243,26 +248,63 @@ var ChatApp = class ChatApp {
 
   appendStreamText(text) {
     if (!this.currentAssistantMsg) return;
-    var bubble = this.currentAssistantMsg.el.querySelector('.msg-bubble');
     this.currentAssistantMsg.content += text;
-    bubble.innerHTML = window.renderMarkdown(this.currentAssistantMsg.content);
+    this._scheduleStreamRender();
+  }
+
+  // 打字机每 16ms 一帧。原来每帧都对全文重新 marked.parse + DOMPurify +
+  // innerHTML 全量替换，几千字的代码回答会持续触发全量重排，越长越卡。
+  // 现在渲染节流到 RENDER_INTERVAL_MS；正文超过 LARGE_TEXT_CHARS 后走
+  // textContent 快路径（不解析 Markdown、不重建代码块），完成时再整体渲染一次。
+  _scheduleStreamRender() {
+    if (this.renderTimer) return;
+    var self = this;
+    this.renderTimer = setTimeout(function () {
+      self.renderTimer = null;
+      self._renderStreamingNow();
+    }, RENDER_INTERVAL_MS);
+  }
+
+  _renderStreamingNow() {
+    var msg = this.currentAssistantMsg;
+    if (!msg || !msg.isStreaming) return;
+    var bubble = msg.el.querySelector('.msg-bubble');
+    if (!bubble) return;
+
+    if (msg.content.length > LARGE_TEXT_CHARS) {
+      bubble.textContent = msg.content;
+      bubble.style.whiteSpace = 'pre-wrap';
+    } else {
+      bubble.innerHTML = window.renderMarkdown(msg.content);
+    }
     bubble.classList.add('streaming-cursor');
     this._scrollToBottom();
   }
 
+  _cancelStreamRender() {
+    if (this.renderTimer) {
+      clearTimeout(this.renderTimer);
+      this.renderTimer = null;
+    }
+  }
+
   onStreamComplete(fullText) {
     if (!this.currentAssistantMsg) return;
+    this._cancelStreamRender();
     this.currentAssistantMsg.raw = fullText;
     this.currentAssistantMsg.isStreaming = false;
     var bubble = this.currentAssistantMsg.el.querySelector('.msg-bubble');
     bubble.classList.remove('streaming-cursor');
+    bubble.style.whiteSpace = '';
     bubble.innerHTML = window.renderMarkdown(fullText);
   }
 
   showError(msg) {
     if (this.currentAssistantMsg) {
+      this._cancelStreamRender();
       var bubble = this.currentAssistantMsg.el.querySelector('.msg-bubble');
       bubble.classList.remove('streaming-cursor');
+      bubble.style.whiteSpace = '';
       // 错误文案可能带上后端返回的 detail，用 textContent 写入，不拼 HTML
       bubble.innerHTML = '';
       var box = document.createElement('div');
@@ -293,6 +335,7 @@ var ChatApp = class ChatApp {
 
   abort() {
     if (this.streamHandler) this.streamHandler.abort();
+    this._cancelStreamRender();
     this.isStreaming = false;
     this.els.sendBtn.disabled = false;
   }
@@ -364,8 +407,8 @@ var ChatApp = class ChatApp {
       // Timer display on mic button
       this.recordStartTime = Date.now();
       this.recordTimer = setInterval(() => {
-        var elapsed = Math.floor((Date.now() - this.recordStartTime) / 1000);
-        if (elapsed >= 30) this._stopRecording();
+        var elapsed = Date.now() - this.recordStartTime;
+        if (elapsed >= this.maxRecordMs) this._stopRecording();
       }, 500);
 
       var mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')

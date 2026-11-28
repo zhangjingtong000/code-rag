@@ -10,12 +10,14 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.indexing.chunker import CodeChunk, chunk_key
 from backend.retrieval.bm25_store import BM25Store, load_cached
 from backend.retrieval.fusion import dedup_and_limit, detect_query_context, rrf_fusion
+from backend.retrieval.query_expansion import expand_query
 from backend.retrieval.vector_store import VectorStore
 
 
@@ -112,6 +114,74 @@ class RagWordBoundaryTest(unittest.TestCase):
     def test_standalone_rag_still_boosts(self):
         for question in ('rag 的融合怎么做', '这个项目的rag在哪', 'RAG pipeline 是什么'):
             self.assertTrue(self._rag_boosted(question), question)
+
+
+class ExpandQueryWordBoundaryTest(unittest.TestCase):
+    """expand_query 是同一链路的另一半：它也不能靠 'rag' 子串判断。
+
+    修复前 fusion 改成了词边界，query_expansion 仍是 `'rag' in ...`，
+    于是 "average latency of the search" 会被扩出 source-rag / index.html /
+    style.css / app.js 等一串写死的本仓库文件名。这里与 RagWordBoundaryTest
+    对称：不命中时不注入，命中时仍然注入，且两条路径必须给出同一结论。
+    """
+
+    REPO_TERMS = ('source-rag', 'rag-system', 'index.html', 'app.js', 'transcriber')
+
+    def test_english_words_containing_rag_do_not_inject_repo_files(self):
+        for question in ('average latency?', 'drag handler', 'fragment cache',
+                         'storage size', 'paragraph 3'):
+            expanded = expand_query(question)
+            for term in self.REPO_TERMS:
+                self.assertNotIn(term, expanded, f'{question!r} 被注入了 {term}')
+
+    def test_standalone_rag_still_injects_repo_files(self):
+        for question in ('rag 的前端怎么组织', '这个项目的rag在哪', 'RAG pipeline 是什么'):
+            self.assertIn('source-rag', expand_query(question), question)
+
+    def test_question_answering_system_still_injects(self):
+        self.assertIn('source-rag', expand_query('问答系统怎么做的'))
+
+    def test_both_halves_agree_on_rag_context(self):
+        for question in ('average latency?', 'drag handler', 'fragment cache',
+                         'storage size', 'paragraph 3', 'rag 的融合怎么做',
+                         '这个项目的rag在哪', '问答系统怎么做的'):
+            boosted = 'rag' in detect_query_context(question)['source_boost']
+            injected = 'source-rag' in expand_query(question)
+            self.assertEqual(boosted, injected, f'{question!r} 两条路径结论不一致')
+
+
+class ExpandQueryLlmTest(unittest.TestCase):
+    """L2 扩展真的接在链路上：默认关闭，开启后按问题缓存、只调一次 LLM。"""
+
+    def test_disabled_is_exactly_static_expansion(self):
+        from backend.retrieval import query_expansion as qe
+
+        with mock.patch.object(qe.settings, 'llm_expansion_enabled', False):
+            self.assertEqual(
+                qe.expand_query_llm('rag 的融合'),
+                qe.expand_query('rag 的融合'),
+            )
+
+    def test_enabled_calls_llm_once_and_caches(self):
+        from backend.retrieval import query_expansion as qe
+
+        calls = []
+
+        class FakeLLM:
+            def generate(self, messages):
+                calls.append(messages)
+                return 'alpha beta'
+
+        with mock.patch.object(qe.settings, 'llm_expansion_enabled', True), \
+                mock.patch('backend.generation.llm_service.LLMService', FakeLLM):
+            qe._LLM_CACHE.clear()
+            first = qe.expand_query_llm('缓存测试问题')
+            second = qe.expand_query_llm('缓存测试问题')
+            qe._LLM_CACHE.clear()
+
+        self.assertEqual(first, second)
+        self.assertIn('alpha beta', first)
+        self.assertEqual(len(calls), 1, '同一问题不应重复调用 LLM')
 
 
 class BM25CacheTest(unittest.TestCase):

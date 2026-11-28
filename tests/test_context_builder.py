@@ -134,6 +134,53 @@ class ContextBudgetTest(unittest.TestCase):
             estimate_tokens(out), loose.max_tokens,
             '截断后仍然超出 token 预算')
 
+    def test_first_file_over_budget_is_still_included(self):
+        """第一个文件就超预算时不能静默返回空上下文。
+
+        旧实现在 `if sections:` 为空时直接 break，结果是只有项目背景 header、
+        一个文件都没有，也不报错——模型只能凭空回答「源码中未找到」。
+        """
+        header_tokens, _ = self._base_tokens()
+        builder = self._builder(header_tokens + 400)
+        with mock.patch.object(
+                context_builder_mod.ContextBuilder, '_read_source_file',
+                _fake_read_source_file):
+            out = builder.build([_hit('big.py', 100, 104, 0.9)])
+
+        self.assertIn('### [来源: rag | 文件: big.py]', out, '首个文件必须至少给一段')
+        self.assertIn('b_LINE_100', out, '至少保留命中行附近')
+        self.assertLessEqual(
+            estimate_tokens(out), builder.max_tokens,
+            '保底收录后仍然超出 token 预算')
+
+    def test_zero_budget_warns_instead_of_silence(self):
+        """连一段都放不下时要显式提示，而不是返回一个只有 header 的上下文。"""
+        header_tokens, _ = self._base_tokens()
+        builder = self._builder(max(1, header_tokens // 2))
+        with mock.patch.object(
+                context_builder_mod.ContextBuilder, '_read_source_file',
+                _fake_read_source_file):
+            out = builder.build([_hit('big.py', 100, 104, 0.9)])
+
+        self.assertIn('上下文预算不足', out, '预算不足时必须有提示')
+        self.assertNotIn('文件: big.py', out)
+
+
+class TopKFilesTest(unittest.TestCase):
+    """full_file_top_k 必须真的限制进上下文的文件数（旧实现只读不用）。"""
+
+    def test_only_top_k_files_are_included(self):
+        results = [_hit(f'f{i}.py', 1, 2, 1.0 - i * 0.1) for i in range(6)]
+        builder = ContextBuilder()
+
+        with mock.patch.object(
+                context_builder_mod.ContextBuilder, '_read_source_file',
+                lambda self, source, rel_path, root: f'# {rel_path}\nVALUE = 1\n'):
+            out = builder.build(results)
+
+        included = [i for i in range(6) if f'文件: f{i}.py' in out]
+        self.assertEqual(included, list(range(builder.top_k)), included)
+
 
 if __name__ == '__main__':
     unittest.main()

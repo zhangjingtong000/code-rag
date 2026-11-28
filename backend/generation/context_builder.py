@@ -8,6 +8,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from backend.config import settings
 from backend.semantic_tags import load_config as _load_semantic_config
 
+# 每个文件段还有 ### 标题 + 代码围栏，不能算进正文预算
+_BUDGET_OVERHEAD_TOKENS = 200
+# 已经有文件进上下文后，剩余预算低于这个就不值得再收一个残段
+_MIN_SECTION_TOKENS = 500
+_TRUNCATION_MARKER = '\n// ... [已截断，完整文件见源码]\n'
+
 
 # Approximate token counter. Deliberately conservative: over-estimating only
 # costs a little context, under-estimating blows the model window.
@@ -64,12 +70,14 @@ class ContextBuilder:
                 (meta.get('start_line', 1), meta.get('end_line', meta.get('start_line', 1) + 100))
             )
 
-        # Sort by best score descending
+        # Sort by best score descending, then keep only the configured number
+        # of full files (`full_file_top_k`). It used to be read into `top_k` and
+        # never applied, so the budget alone decided how many files went in.
         sorted_files = sorted(
             file_groups.items(),
             key=lambda x: x[1]['best_score'],
             reverse=True
-        )
+        )[:self.top_k]
 
         # Build context sections
         sections = []
@@ -105,22 +113,31 @@ class ContextBuilder:
 
             # Check if adding this file would exceed budget
             if current_tokens + file_tokens > self.max_tokens:
+                remaining = self.max_tokens - current_tokens - _BUDGET_OVERHEAD_TOKENS
                 if sections:
                     # Truncate this file to fit remaining budget
-                    remaining = self.max_tokens - current_tokens - 200  # 200 for overhead
-                    if remaining > 500:  # only if we can fit something meaningful
-                        hit_ranges = file_info['hit_ranges']
-                        truncated = self._truncate_to_relevant(full_content, hit_ranges)
-                        # Further truncate if still too big
-                        if estimate_tokens(truncated) > remaining:
-                            # 2 chars/token is the safe lower bound (Chinese is 1
-                            # char/token); the old *3 could leave the file over budget.
-                            truncated = truncated[:remaining * 2]
-                            truncated += '\n// ... [已截断，完整文件见源码]\n'
-                        sections.append(
-                            self._format_file_section(source, rel_path, truncated)
-                        )
-                break  # stop adding more files
+                    if remaining >= _MIN_SECTION_TOKENS:
+                        sections.append(self._format_file_section(
+                            source, rel_path,
+                            self._fit_to_budget(
+                                full_content, file_info['hit_ranges'], remaining)))
+                    break  # stop adding more files
+
+                # 第一个文件就超预算时，原实现直接 break，返回的上下文只有项目
+                # 背景 header、一个文件都没有，也不报错——模型只能凭空回答。
+                # 这里至少收一个截断到剩余预算的文件；连一段都放不下时写一条
+                # 显式提示，让「没检索到内容」可见，而不是静默。
+                if remaining > 0:
+                    sections.append(self._format_file_section(
+                        source, rel_path,
+                        self._fit_to_budget(
+                            full_content, file_info['hit_ranges'], remaining)))
+                else:
+                    sections.append(
+                        '> [上下文预算不足：项目背景已占满 '
+                        f'{self.max_tokens} token 预算，未能收录任何源文件。'
+                        '请调大 context_max_tokens 或缩短项目背景。]')
+                break
 
             sections.append(
                 self._format_file_section(source, rel_path, full_content)
@@ -130,18 +147,48 @@ class ContextBuilder:
         body = '\n\n'.join(sections)
         return header + body
 
-    def _truncate_to_relevant(self, content: str, hit_ranges: list[tuple]) -> str:
+    def _fit_to_budget(self, content: str, hit_ranges: list[tuple],
+                       budget_tokens: int) -> str:
+        """Truncate ``content`` to the hit ranges and then to a token budget.
+
+        Never returns an empty string when there is any budget: a context that
+        silently drops the only matching file is worse than a short excerpt.
+        The expand radius shrinks before the raw character cut, so the hit
+        lines themselves survive a tight budget.
+        """
+        for radius in (self.expand_lines, self.expand_lines // 4, 20, 5, 1):
+            truncated = self._truncate_to_relevant(content, hit_ranges, radius)
+            if estimate_tokens(truncated) <= budget_tokens:
+                return truncated
+
+        truncated = self._truncate_to_relevant(content, hit_ranges, 1)
+        marker = '' if '已截断' in truncated else _TRUNCATION_MARKER
+        allowance = budget_tokens - estimate_tokens(marker) - 1
+        if allowance <= 0:
+            return marker.strip()
+
+        # 2 chars/token is the safe lower bound (Chinese is 1 char/token);
+        # then shrink until the estimate actually fits.
+        cut = truncated[:max(0, allowance * 2)]
+        while cut and estimate_tokens(cut) > allowance:
+            cut = cut[:int(len(cut) * 0.9)]
+        return cut + marker
+
+    def _truncate_to_relevant(self, content: str, hit_ranges: list[tuple],
+                              expand_lines: int | None = None) -> str:
         """Truncate file content to the most relevant sections (hit ranges ± expand_lines)."""
         lines = content.split('\n')
+        if expand_lines is None:
+            expand_lines = self.expand_lines
 
         if not hit_ranges:
             # No hit info: return first portion
-            return '\n'.join(lines[:self.expand_lines * 2])
+            return '\n'.join(lines[:expand_lines * 2])
 
         # Merge overlapping hit ranges
         merged = []
         for start, end in sorted(hit_ranges):
-            if merged and start <= merged[-1][1] + self.expand_lines:
+            if merged and start <= merged[-1][1] + expand_lines:
                 merged[-1] = (merged[-1][0], max(merged[-1][1], end))
             else:
                 merged.append((start, end))
@@ -149,8 +196,8 @@ class ContextBuilder:
         # Expand ranges
         expanded = []
         for start, end in merged:
-            exp_start = max(1, start - self.expand_lines)
-            exp_end = min(len(lines), end + self.expand_lines)
+            exp_start = max(1, start - expand_lines)
+            exp_end = min(len(lines), end + expand_lines)
             expanded.append((exp_start, exp_end))
 
         # Build truncated content

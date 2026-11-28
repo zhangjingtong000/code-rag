@@ -10,7 +10,7 @@ if __name__ == '__main__':
     import uvicorn
     from backend.config import settings
 
-    print(f"=== RAG Code Q&A System ===")
+    print("=== RAG Code Q&A System ===")
     print(f"Server: http://{settings.host}:{settings.port}")
     print(f"Frontend: http://{settings.host}:{settings.port}/frontend/index.html")
     print(f"API Docs: http://{settings.host}:{settings.port}/docs")

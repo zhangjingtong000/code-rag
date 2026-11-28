@@ -14,6 +14,8 @@ DEFAULT_BOOST = 1.0
 # "fragment cache" and doubled every rag-source chunk. The lookarounds keep
 # "rag" as a standalone word while still allowing Chinese neighbours
 # ("这个项目的rag在哪"), which `\b` does not (Chinese chars are word chars).
+# Shared with query_expansion.expand_query(): both halves of the same pipeline
+# must use one rule, otherwise only one of them stops substring-matching.
 _RAG_WORD = re.compile(r'(?<![a-z0-9_])rag(?![a-z0-9_])')
 
 # When query mentions specific source, boost chunks from that source
@@ -99,10 +101,14 @@ def boost_results(results: list[dict], context: dict) -> list[dict]:
 
 
 def rrf_fusion(vector_results: list[dict], bm25_results: list[dict],
-               k: int = 60, context: dict = None) -> list[dict]:
+               k: int = 60) -> list[dict]:
     """RRF with optional per-chunk boost multipliers.
 
     boosted_rrf = Σ (boost / (k + rank))
+
+    The boosts arrive on each result as ``_boost`` (see ``boost_results``), so
+    this function needs no query context of its own. It used to take a
+    ``context`` argument that was never read.
     """
     scores = {}
 
@@ -175,7 +181,6 @@ def hybrid_search(vector_results: list[dict], bm25_results: list[dict],
     vector_results = boost_results(vector_results, context)
     bm25_results = boost_results(bm25_results, context)
 
-    merged = rrf_fusion(vector_results, bm25_results,
-                        k=settings.rrf_k, context=context)
+    merged = rrf_fusion(vector_results, bm25_results, k=settings.rrf_k)
     filtered = dedup_and_limit(merged, max_per_file=settings.max_chunks_per_file)
     return filtered

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
@@ -9,7 +9,8 @@ class ChatMessage(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str
-    chat_history: list[ChatMessage] = []
+    # 可变默认值必须每个实例一份：list 字面量会在所有请求之间共享同一个对象。
+    chat_history: list[ChatMessage] = Field(default_factory=list)
 
 
 class QueryResponse(BaseModel):
@@ -23,7 +24,6 @@ class IndexStatusResponse(BaseModel):
     last_built: Optional[str] = None
     status: str  # 'ready' | 'building' | 'error' | 'not_built'
     progress: Optional[str] = None  # e.g. "45/350 chunks"
-    eta_seconds: Optional[int] = None
 
 
 class RebuildRequest(BaseModel):

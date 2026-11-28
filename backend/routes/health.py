@@ -14,12 +14,23 @@ router = APIRouter()
 _rebuild_state = {'status': 'idle', 'message': None}
 
 
-def _read_metadata():
-    path = os.path.join(settings.data_dir, "chunk_metadata.json")
+def _read_metadata(path: str | None = None):
+    """Read chunk metadata, tolerating a missing or corrupt file.
+
+    A half-written / corrupt ``chunk_metadata.json`` used to raise straight out
+    of the endpoint (HTTP 500) and the UI showed "服务未连接". Missing or
+    unreadable metadata is a recoverable state: report it as "not built".
+    """
+    path = path or os.path.join(settings.data_dir, "chunk_metadata.json")
     if not os.path.exists(path):
         return None
-    with open(path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError) as exc:
+        print(f"[Index API] chunk_metadata.json 读取失败（按未构建处理）: {exc}", flush=True)
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _empty_index_detail() -> str:

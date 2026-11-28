@@ -54,7 +54,7 @@ class EmbeddingService:
                         all_embeddings.extend(emb)
                     else:
                         raise Exception("empty result")
-                except Exception as e:
+                except Exception:
                     print(f"[Embedding] chunk {i + j} failed, using zeros", flush=True)
                     all_embeddings.append([0.0] * 768)
 
