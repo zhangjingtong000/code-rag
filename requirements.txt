@@ -1,5 +1,8 @@
 # 运行依赖（Python 3.10+，实测环境 3.13）
 fastapi>=0.104.1
+# backend/routes/audio.py 用 UploadFile = File(...)；缺了这个包，路由装配阶段
+# 就会抛 "Form data requires python-multipart to be installed."，整个应用起不来。
+python-multipart>=0.0.6
 uvicorn>=0.24.0
 chromadb>=0.4.0
 rank-bm25>=0.2.2
