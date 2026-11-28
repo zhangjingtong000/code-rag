@@ -135,7 +135,7 @@ python build_index.py full
 
 直接删整个 `data/` 也可以，但那会连带删掉 `data/source-*` 下的语料；语料只放在那里时先备份，或用 `--source-dirs` 指向仓库外的目录。
 
-**前端依赖外网 CDN。** `frontend/index.html` 从 jsdelivr 取 marked 4.3.0、从 cdnjs 取 DOMPurify 3.0.8 和 highlight.js 11.9.0（含 python / javascript 语言包），共 5 个外部资源。国内网络访问这两个 CDN 经常很慢或被拒；任一脚本加载失败，页面就是白屏或 Markdown 不渲染（脚本在 `<head>` 里同步阻塞）。离线或内网环境需自行把这几个文件放到 `frontend/vendor/`，再改 `index.html` 的引用。
+**前端依赖外网 CDN。** `frontend/index.html` 从 jsdelivr 取 marked 4.3.0、从 cdnjs 取 DOMPurify 3.0.8 和 highlight.js 11.9.0（含 python / javascript 语言包），共 6 个外部资源。国内网络访问这两个 CDN 经常很慢或被拒；任一脚本加载失败，页面就是白屏或 Markdown 不渲染（脚本在 `<head>` 里同步阻塞）。离线或内网环境需自行把这几个文件放到 `frontend/vendor/`，再改 `index.html` 的引用。
 
 **LLM 输出不作为可信内容。** 模型复述的是被索引的源码，源码本身不可控，所以 `renderMarkdown()` 在 `innerHTML` 之前先过 DOMPurify（只放行渲染器自己产生的 `onclick="toggleFold('id')"` / `onclick="copyCode(this,'id')"`）；DOMPurify 没加载成功时退化为标签/属性黑名单过滤，安全性下降但仍强于裸 `innerHTML`。要接不可信语料，请把 CDN 换成自托管并收紧白名单。
 
