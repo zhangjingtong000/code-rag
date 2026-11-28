@@ -1,6 +1,7 @@
 """Query endpoint with SSE streaming — sync, no async/thread complexity."""
 
 import json
+import os
 import uuid
 import time
 import sys
@@ -35,6 +36,29 @@ def _sse_event(event: str, data: dict) -> str:
 def create_query(req: QueryRequest):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
+
+    # 空索引上允许提问只会拿到「源码中未找到相关实现」的空回答，还会白烧一次
+    # LLM 调用。索引没建、或建出来是 0 chunk，都在这里直接拦掉并说清怎么修。
+    meta_path = settings.metadata_path
+    meta = None
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+        except (OSError, ValueError):
+            meta = None
+
+    if not meta:
+        raise HTTPException(
+            status_code=409,
+            detail="索引尚未构建（data/chunk_metadata.json 缺失），先运行 python build_index.py full",
+        )
+    if not meta.get('chunks_count'):
+        raise HTTPException(
+            status_code=409,
+            detail=("索引为空（0 chunk）：语料目录里没有可索引的源文件，检索不会有结果。"
+                    "请检查 data/source-* 或 RAG_SOURCE_DIRS，然后重建索引"),
+        )
 
     query_id = uuid.uuid4().hex[:12]
     _query_store[query_id] = {

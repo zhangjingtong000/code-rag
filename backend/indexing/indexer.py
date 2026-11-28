@@ -48,6 +48,17 @@ class Indexer:
         print("[Indexer] Scanning source files...")
         files = self.scanner.scan()
 
+        # 扫到 0 个文件必须直接失败。以前这里只 print 一行就继续，照样写出
+        # chunks_count=0 的 metadata，/health 于是报 ready，前端允许提问但检索
+        # 永远为空；full 模式更会在清空向量库之后才写出空索引。放在 reset 之前，
+        # 语料路径配错时旧索引原样保留。
+        if not files:
+            corpus = "; ".join(f"{e['label']}={e['path']}" for e in settings.source_dirs)
+            raise RuntimeError(
+                "未扫描到任何源文件，索引未改动。请检查语料目录是否存在："
+                f"{corpus}；也可用 RAG_SOURCE_DIRS 或 build_index.py --source-dirs 指定。"
+            )
+
         # Hash tracking
         new_hashes = {f"{fi.source}:{fi.relative_path}": fi.md5 for fi in files}
 
@@ -94,9 +105,6 @@ class Indexer:
             if key in changed_keys:
                 chunks_to_embed.extend(chunks)
                 chunks_to_embed.append(tag_chunk)
-
-        if not files:
-            print("[Indexer] No source files found")
 
         # Drop vector entries of changed or deleted files before re-adding them,
         # so line ranges that no longer exist stop being retrievable.
